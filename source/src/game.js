@@ -7,6 +7,8 @@ import { EnemyManager, DIFFICULTY } from './enemies.js';
 import { updateSun } from './env.js';
 import { audio } from './audio.js';
 import { LEVELS } from './levels.js';
+import { Pickups } from './pickups.js';
+import { keyName } from './input.js';
 
 const V = (x = 0, y = 0, z = 0) => new THREE.Vector3(x, y, z);
 
@@ -18,7 +20,7 @@ export class Game {
     hud.G = this;
   }
 
-  async loadLevel(id, loadout, difficulty, onProgress = () => {}) {
+  async loadLevel(id, loadout, difficulty, onProgress = () => {}, save = null) {
     const def = LEVELS.find(l => l.id === id);
     this.levelDef = def; this.loadout = loadout;
     this.diff = DIFFICULTY[difficulty] || DIFFICULTY.regular; this.diffName = difficulty;
@@ -36,15 +38,22 @@ export class Game {
     this.failed = false; this.completed = false; this.killCount = 0; this.godMode = false;
     this.level = { night: !!def.night, def };
     onProgress(0.15, 'Loading soldiers');
-    await this.enemies.init();
+    await this.enemies.init(def.enemyWeapon || 'ak47');
+    this.pickups = new Pickups(this); await this.pickups.init();
+    this.enemies.onDeath = e => this.pickups.dropFrom(e);
     onProgress(0.3, 'Building ' + def.name);
+    this._supplies = null;
     const L = await def.build(this, onProgress);
+    for (const sp of this._supplies || []) this.pickups.add('supply', sp);
     this.level = { ...this.level, ...L };
     this.objectives = L.objectives;
     this.world.buildNav(0.8);
     onProgress(0.85, 'Issuing equipment');
-    await this.player.setLoadout(loadout);
+    const lo = save && save.weapons ? { ...loadout, primary: save.weapons[0].id, secondary: save.weapons[1].id } : loadout;
+    await this.player.setLoadout(lo);
+    this.player.loadout = loadout;
     this.player.spawn(L.spawn, L.spawnYaw || 0);
+    this.saveData = save;
     this.engine.setScene(scene);
     this.engine.camera.fov = this.settings.fov; this.engine.camera.far = L.far || 1500; this.engine.camera.updateProjectionMatrix();
     // night extras
@@ -63,7 +72,7 @@ export class Game {
       audio.stopLoops();
       for (const [n, v] of def.ambience || []) audio.loop(n, v);
     } catch (e) { console.warn('audio setup failed', e); }
-    this.startObjective(0);
+    if (save && !save.fresh) this.restore(save); else this.startObjective(0);
     this.state = 'playing';
     onProgress(1, 'Ready');
   }
@@ -104,13 +113,13 @@ export class Game {
     return null;
   }
 
-  damageEnemy(e, dmg, head, dir, point) {
+  damageEnemy(e, dmg, head, dir, point, label) {
     this.effects.blood(point, dir);
     audio.play('hit_flesh', { pos: point, vol: 0.7, reverb: 0 });
     const killed = e.takeDamage(dmg, dir);
     if (killed && !this.completed && !this.failed) {
       this.killCount++; this.player.stats.kills++; if (head) this.player.stats.headshots++;
-      this.hud.killfeed(head ? 'HEADSHOT' : 'KILL', head ? 150 : 100);
+      this.hud.killfeed(label || (head ? 'HEADSHOT' : 'KILL'), head || label ? 150 : 100);
       audio.play('kill', { vol: 0.35, reverb: 0 });
       if (this.player.perks.includes('scavenger')) this.player.refillAmmo(0.5);
       this.onEnemyKilled?.(e);
@@ -231,7 +240,7 @@ export class Game {
       this.interactables.push({ pos: o.pos, radius: o.radius || 2, label: o.label || 'Hold [F] to interact', time: o.time || 2.5, progress: 0, obj: o });
     }
     this.hud.setObjective(o.text, i > 0);
-    if (i > 0) audio.play('objective', { vol: 0.5, reverb: 0, bus: audio.music });
+    if (i > 0) { audio.play('objective', { vol: 0.5, reverb: 0, bus: audio.music }); if (!this._restoring) this.saveCheckpoint(false); }
   }
 
   updateObjective(dt) {
@@ -266,7 +275,7 @@ export class Game {
       const it = this.interactables[i];
       if (P.pos.distanceTo(it.pos) < it.radius + 0.5 && Math.abs(P.pos.y - it.pos.y) < 2) {
         shown = it;
-        if (this.input.down('KeyF')) {
+        if (this.input.act('interact')) {
           if (it.progress === 0) audio.play('beep', { vol: 0.3 });
           it.progress += dt / it.time;
           if (it.progress >= 1) {
@@ -277,7 +286,57 @@ export class Game {
         } else it.progress = Math.max(0, it.progress - dt * 2);
       } else it.progress = 0;
     }
-    this.hud.setInteract(shown ? shown.label : null, shown ? shown.progress : 0);
+    this.hud.setInteract(shown ? shown.label.replace('[F]', '[' + keyName(this.input.binds.interact?.[0]) + ']') : null, shown ? shown.progress : 0);
+    return !!shown;
+  }
+
+  // ---------------------------------------------------------------- save / load
+  saveCheckpoint(manual) {
+    if (this.levelDef.noSave || this.failed || this.completed || !this.player.alive) return false;
+    const P = this.player;
+    const data = {
+      v: 1, levelId: this.levelDef.id, levelName: this.levelDef.name, difficulty: this.diffName, loadout: this.loadout,
+      objIdx: this.objIdx, objText: this.objectives[this.objIdx]?.text || '',
+      pos: P.pos.toArray(), yaw: P.yaw, health: P.health,
+      weapons: P.weapons.map(w => ({ id: w.id, ammo: w.ammo, reserve: w.reserve })), cur: P.cur,
+      grenades: { ...P.grenades }, stats: { ...P.stats }, levelTime: this.levelTime,
+      dead: this.enemies.list.map((e, i) => (!e.alive && !e.hostage ? i : -1)).filter(i => i >= 0),
+      hostage: this.hostage ? { follow: this.hostage.follow, pos: this.hostage.pos.toArray() } : null,
+      savedAt: Date.now(), manual: !!manual,
+    };
+    this.ui.writeSave(data);
+    if (manual) this.hud.toast('GAME SAVED', 1.8); else this.hud.pickupMsg('CHECKPOINT SAVED');
+    return true;
+  }
+
+  restore(sv) {
+    this._restoring = true;
+    const P = this.player;
+    // replay completed objectives' side effects
+    for (let k = 0; k < sv.objIdx && k < this.objectives.length; k++) {
+      const o = this.objectives[k];
+      if (o.type === 'interact') { o.done = true; try { o.onDone?.(this); } catch (e) {} }
+      if (o.restore) o.restore(this);
+    }
+    this.startObjective(sv.objIdx);
+    // enemies already killed
+    for (const i of sv.dead || []) {
+      const e = this.enemies.list[i]; if (!e || !e.alive) continue;
+      e.alive = false; e.state = 'dead'; e.model.visible = false; if (e.rifle) e.rifle.visible = false;
+    }
+    if (sv.hostage && this.hostage) { this.hostage.follow = sv.hostage.follow; if (sv.pos) this.hostage.pos.fromArray(sv.pos).add(new THREE.Vector3(1.5, 0, 1.5)); }
+    // player state
+    if (sv.pos) P.pos.fromArray(sv.pos);
+    else { const o = this.objectives[Math.max(0, sv.objIdx - 1)]; if (o?.pos) P.pos.set(o.pos.x, 0, o.pos.z); }
+    if (sv.hostage?.follow && this.hostage && !sv.pos) this.hostage.pos.copy(P.pos).add(new THREE.Vector3(1.5, 0, 1.5));
+    P.yaw = sv.yaw || 0; P.health = Math.min(P.maxHealth, sv.health || P.maxHealth);
+    sv.weapons?.forEach((w, i) => { if (P.weapons[i]) { P.weapons[i].ammo = w.ammo; P.weapons[i].reserve = w.reserve; } });
+    if (sv.cur) { P.weapons[P.cur].model.group.visible = false; P.cur = sv.cur; P.weapons[P.cur].model.group.visible = true; }
+    if (sv.grenades) P.grenades = { ...sv.grenades };
+    if (sv.stats) P.stats = { ...P.stats, ...sv.stats };
+    this.levelTime = sv.levelTime || 0;
+    this._restoring = false;
+    this.hud.toast(sv.manual ? 'SAVED GAME LOADED' : 'CHECKPOINT LOADED', 2);
   }
 
   // ---------------------------------------------------------------- flow
@@ -296,6 +355,8 @@ export class Game {
   completeMission() {
     if (this.completed || this.failed) return;
     this.completed = true; this.finalStats = this.summary();
+    const idx = LEVELS.findIndex(l => l.id === this.levelDef.id), next = LEVELS[idx + 1];
+    if (next) this.ui.writeSave({ v: 1, fresh: true, levelId: next.id, levelName: next.name, difficulty: this.diffName, objIdx: 0, objText: 'Mission start', savedAt: Date.now() }); else this.ui.clearSave();
     audio.play('objective', { vol: 0.7, reverb: 0, bus: audio.music });
     this.hud.setObjective('MISSION COMPLETE', true);
     setTimeout(() => { this.state = 'over'; this.input.unlock(); this.ui.missionComplete(this.finalStats); }, 2500);
@@ -313,7 +374,7 @@ export class Game {
     this.player.update(dt, input);
     this.enemies.update(dt);
     this.updateGrenades(dt);
-    if (!this.failed && !this.completed) { this.updateObjective(dt); this.updateInteract(dt); }
+    if (!this.failed && !this.completed) { this.updateObjective(dt); const shown = this.updateInteract(dt); this.pickups.update(dt, shown); }
     this.level.update?.(this, dt);
     // falling targets
     if (this.fallingTargets) for (const m of this.fallingTargets) { if (m.userData.fall < 1) { m.userData.fall = Math.min(1, m.userData.fall + dt * 4); m.rotation.x = -m.userData.fall * Math.PI / 2 * 0.95; } }

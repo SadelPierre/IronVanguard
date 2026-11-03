@@ -40,6 +40,20 @@ function sandbagWall(W, M, x, z, len, horiz = true, h = 0.9) {
   else W.addCollider(V(x - 0.3, 0, z - len / 2), V(x + 0.3, h, z + len / 2), 'dirt');
 }
 
+// burnt-out vehicle shell usable as hard cover
+function wreck(G, M, x, z, rotY = 0, truck = false) {
+  const W = G.world, car = new THREE.Group(), cm = M.rust;
+  const L = truck ? 6 : 4.3, Wd = truck ? 2.3 : 1.8;
+  const b = new THREE.Mesh(new THREE.BoxGeometry(Wd, 0.75, L), cm); b.position.y = 0.62; car.add(b);
+  const t = new THREE.Mesh(new THREE.BoxGeometry(Wd * 0.9, truck ? 1.1 : 0.6, truck ? 1.8 : 2.2), cm); t.position.set(0, truck ? 1.55 : 1.25, truck ? -L / 2 + 1.1 : -0.2); car.add(t);
+  for (const [dx, dz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) { const w = new THREE.Mesh(new THREE.CylinderGeometry(0.36, 0.36, 0.25, 12), M.darkMetal); w.rotation.z = Math.PI / 2; w.position.set(dx * (Wd / 2 - 0.05), 0.3, dz * (L / 2 - 0.8)); car.add(w); }
+  car.position.set(x, 0, z); car.rotation.y = rotY;
+  car.traverse(o => { if (o.isMesh) o.castShadow = o.receiveShadow = true; }); G.scene.add(car);
+  car.updateMatrixWorld(true); const bb = new THREE.Box3().setFromObject(b); W.addCollider(bb.min, bb.max, 'metal');
+  const bt = new THREE.Box3().setFromObject(t); W.addCollider(bt.min, bt.max, 'metal');
+  return car;
+}
+
 function laptop(G, x, y, z, rotY = 0) {
   const g = new THREE.Group();
   const base = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.02, 0.24), new THREE.MeshStandardMaterial({ color: 0x222326, metalness: 0.6, roughness: 0.4 }));
@@ -134,15 +148,20 @@ async function desertVillage(G, M) {
     P('utility_box_01', 34, 18, { rotY: Math.PI / 2 }), P('portable_generator', -6, -28, { rotY: 0.5 }), P('old_military_crate', 8, -30, { mat: 'wood' }),
     P('ammo_box', 8, -30.3, { y: 0.3 }), P('medical_box', -5, -45),
   ]);
-  for (let i = 0; i < 14; i++) {
+  for (let i = 0; i < 8; i++) {
     const x = (Math.random() - 0.5) * 110, z = 40 + Math.random() * 25;
-    if (Math.abs(x) < 6) continue;
+    if (Math.abs(x) < 30) continue;
     await P('boulder_01', x, z, { rotY: Math.random() * 6, scale: 0.8 + Math.random() * 0.9, mat: 'concrete' });
   }
   for (let i = 0; i < 40; i++) await P('rock_07', (Math.random() - 0.5) * 120, (Math.random() - 0.5) * 150, { rotY: Math.random() * 6, scale: 1 + Math.random() * 2, collide: false, cast: false });
   sandbagWall(W, M, -3, 36, 4); sandbagWall(W, M, 4, 36, 3);
+  // approach cover (spawn is at z=62): leapfrog positions all the way to the wall
+  wreck(G, M, -5, 55, 0.35, true); wreck(G, M, 9, 49, -0.5); wreck(G, M, -14, 43, 1.2); wreck(G, M, 17, 40, 0.2, true);
+  sandbagWall(W, M, 3, 58, 3.5); sandbagWall(W, M, -10, 50, 3.5); sandbagWall(W, M, 0, 46, 3); sandbagWall(W, M, 22, 50, 3.5, false); sandbagWall(W, M, -22, 52, 3.5, false);
+  await Promise.all([[-18, 58], [13, 60], [-28, 46], [27, 44], [6, 40]].map(([x, z], i) => W.prop('boulder_01', x, z, { rotY: i * 1.7, scale: 1.6, mat: 'concrete' })));
   sandbagWall(W, M, -6, -20, 3); sandbagWall(W, M, 6, -20, 3);
   sandbagWall(W, M, 0, -60, 6);
+  G._supplies = [V(-6, 0, 33.5), V(-31, 0, 0), V(20, 0, -26)];
   table(G, M, 3, -44.5, 1.6, 0.8);
   laptop(G, 3, 0.79, -44.5, 0.2);
   // interior lights
@@ -198,6 +217,7 @@ export const LEVELS = [
         for (const [dx, dz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) W.box(x + dx, 0, z + dz, 0.2, 5, 0.2, M.wood, { mat: 'wood' });
         W.box(x, 5, z, 2.6, 0.15, 2.6, M.wood); W.box(x, 5.15, z, 2.6, 1, 0.1, M.wood, { collide: false }); W.box(x, 6.4, z, 3, 0.1, 3, M.corr, { collide: false });
       }
+      G._supplies = [V(6, 0, 36)];
       const lanes = { 1: 0, 2: 0, 3: 0 };
       G.onTargetHit = c => { lanes[c.lane] = (lanes[c.lane] || 0) + 1; };
       let pitDone = false;
@@ -212,7 +232,7 @@ export const LEVELS = [
           { type: 'reach', text: 'Proceed to the grenade range', pos: V(-28, 0, 10), radius: 3 },
           { type: 'custom', text: 'Throw a grenade (G) into the sandbagged pit', waypointPos: V(-28, 0.5, -6), check: G => { if (G.player.grenades.lethal === 0 && !pitDone && !G.grenades.length) G.player.grenades.lethal = 1; return pitDone; }, onStart: G => G.hud.showHint('Press <b>G</b> to throw a frag grenade. Aim high to lob it further.', 6) },
           { type: 'reach', text: 'Enter the shoot house', pos: V(0, 0, -38), radius: 2.5, onStart: G => { G.player.grenades.lethal = 2; G.player.grenades.tactical = 2; } },
-          { type: 'custom', text: 'Clear the shoot house: drop all 6 targets', check: () => { G.hud.setObjectiveCount(`${lanes[3]}/6`); return lanes[3] >= 6; }, onStart: G => G.hud.showHint('Check your corners. Switch weapons with <b>1</b>/<b>2</b>, melee with <b>V</b>.', 6) },
+          { type: 'custom', text: 'Clear the shoot house: drop all 6 targets', check: () => { G.hud.setObjectiveCount(`${lanes[3]}/6`); return lanes[3] >= 6; }, onStart: G => G.hud.showHint('Check your corners. Switch weapons with <b>1</b>/<b>2</b>. Get close and press <b>F</b> to use your knife.', 6) },
           { type: 'reach', text: 'Sprint (Shift) through the finish gate', pos: finish, radius: 3 },
         ],
       };
@@ -220,7 +240,7 @@ export const LEVELS = [
     },
   },
   {
-    id: 'dustdevil', name: 'OPERATION DUST DEVIL', location: 'Al-Qadir Province', time: '13:05 Local', reverb: 'outdoor',
+    id: 'dustdevil', enemyWeapon: 'ak47', name: 'OPERATION DUST DEVIL', location: 'Al-Qadir Province', time: '13:05 Local', reverb: 'outdoor',
     briefing: 'Insurgent commander "The Jackal" is coordinating attacks from a walled village in the desert. Infiltrate the village from the south, eliminate all hostile forces, and recover the intelligence laptop from his compound. Exfil by helicopter at the northern LZ.',
     objectivesPreview: ['Infiltrate the village', 'Eliminate hostile forces', 'Recover the intel', 'Reach the LZ for extraction'],
     intro: ['OPERATION DUST DEVIL', 'Al-Qadir Province', 'Sgt. "Ghost" Reyes — 1st Vanguard Battalion', 'Day 4, 13:05'],
@@ -262,7 +282,7 @@ export const LEVELS = [
     },
   },
   {
-    id: 'ironharbor', name: 'OPERATION IRON HARBOR', location: 'Port of Kaliningrad Sector 9', time: '19:42 Local', reverb: 'urban',
+    id: 'ironharbor', enemyWeapon: 'm4a1', name: 'OPERATION IRON HARBOR', location: 'Port of Kaliningrad Sector 9', time: '19:42 Local', reverb: 'urban',
     briefing: 'Intel from the Jackal\'s laptop points to a weapons smuggling ring operating out of a dockyard. Two arms caches are hidden among the containers. Plant charges on both, get clear of the blast and fight your way to the extraction boat at the pier.',
     objectivesPreview: ['Plant C4 on cache Alpha', 'Plant C4 on cache Bravo', 'Get clear before detonation', 'Fight to the extraction boat'],
     intro: ['OPERATION IRON HARBOR', 'Port Sector 9, Baltic Coast', 'Sgt. "Ghost" Reyes — 1st Vanguard Battalion', 'Day 6, 19:42'],
@@ -340,6 +360,12 @@ export const LEVELS = [
         W.prop('concrete_road_barrier', -58, 50, { rotY: 0.4 }), W.prop('concrete_road_barrier', -50, 48, { rotY: -0.3 }), W.prop('wooden_crate_01', 25, 45), W.prop('cardboard_box_01', 26, 44),
       ]);
       sandbagWall(W, M, 38, 30, 3, false); sandbagWall(W, M, -24, -14, 3);
+      // spawn-side cover (spawn at -62,62)
+      cont(-54, 50, false, 1, 4); cont(-62, 44, true, 2, 1); cont(-46, 56, true, 1, 3);
+      wreck(G, M, -56, 58, 0.8, true); wreck(G, M, -40, 50, -0.3);
+      sandbagWall(W, M, -50, 62, 3.5); sandbagWall(W, M, -58, 52, 3); sandbagWall(W, M, -36, 44, 3.5, false);
+      await Promise.all([W.prop('wooden_crate_01', -52, 46, { mat: 'wood' }), W.prop('wooden_crate_01', -51.3, 46.6, { rotY: 0.5, mat: 'wood' }), W.prop('old_military_crate', -44, 46, { mat: 'wood', rotY: 1.2 })]);
+      G._supplies = [V(-58, 0, 58), V(30, 0, 40), V(-5, 0, -25), V(50, 0, -12)];
       prog(0.7, 'Deploying hostiles');
       const z = 'yard';
       const E = (x, zz, o = {}) => enemy(G, x, zz, { zone: z, ...o });
@@ -378,7 +404,7 @@ export const LEVELS = [
     },
   },
   {
-    id: 'midnight', name: 'OPERATION MIDNIGHT', location: 'Old Town, Zagoria', time: '02:15 Local', night: true, reverb: 'urban',
+    id: 'midnight', enemyWeapon: 'mp5', name: 'OPERATION MIDNIGHT', location: 'Old Town, Zagoria', time: '02:15 Local', night: true, reverb: 'urban',
     briefing: 'A captured Vanguard intelligence officer, Lt. Hayes, is being held in a safehouse at the north end of Old Town. Move up the street under cover of darkness, clear the safehouse and free the hostage. Do NOT shoot the hostage. Escort Hayes back to the extraction vehicle. Night vision (N) and flashlight (T) are available.',
     objectivesPreview: ['Locate the safehouse', 'Clear the safehouse', 'Free Lt. Hayes', 'Escort Hayes to the vehicle'],
     intro: ['OPERATION MIDNIGHT', 'Old Town, Zagoria', 'Sgt. "Ghost" Reyes — 1st Vanguard Battalion', 'Day 9, 02:15'],
@@ -431,6 +457,11 @@ export const LEVELS = [
         car.position.set(x, 0, z); car.rotation.y = r; car.traverse(o => { if (o.isMesh) o.castShadow = o.receiveShadow = true; }); G.scene.add(car);
         car.updateMatrixWorld(true); const bb = new THREE.Box3().setFromObject(car); W.addCollider(bb.min, bb.max, 'metal');
       }
+      // spawn-side cover (spawn at 0,32)
+      await Promise.all([W.prop('concrete_road_barrier', -2.5, 26, { rotY: 0.15 }), W.prop('concrete_road_barrier', 3, 22, { rotY: -0.2 }), W.prop('concrete_road_barrier', -3, 4, { rotY: 0.3 }), W.prop('concrete_road_barrier', 2.5, -22, { rotY: -0.1 }), W.prop('wooden_crate_01', 4, 27, { mat: 'wood' })]);
+      sandbagWall(W, M, 0, -3, 3); sandbagWall(W, M, -1, -44, 3.5);
+      wreck(G, M, -3.5, 14, 0.1);
+      G._supplies = [V(7.5, 0, 28), V(-7.5, 0, -34), V(7.5, 0, -62)];
       // street lamps
       for (const [x, z] of [[-6.5, 30], [6.5, 10], [-6.5, -10], [6.5, -34], [-6.5, -54]]) {
         await W.prop('street_lamp_01', x, z, { rotY: x < 0 ? -Math.PI / 2 : Math.PI / 2 });
@@ -469,11 +500,11 @@ export const LEVELS = [
     },
   },
   {
-    id: 'laststand', name: 'LAST STAND', location: 'Al-Qadir Province', time: '18:50 Local', reverb: 'outdoor',
+    id: 'laststand', noSave: true, enemyWeapon: 'ak47', name: 'LAST STAND', location: 'Al-Qadir Province', time: '18:50 Local', reverb: 'outdoor',
     briefing: 'Your extraction helicopter went down. Hold the village until the QRF arrives. Survive five waves of increasingly aggressive hostiles. Resupply ammunition at the crate in the courtyard.',
     objectivesPreview: ['Survive 5 waves', 'Resupply at the ammo crate'],
     intro: ['LAST STAND', 'Al-Qadir Province', 'Sgt. "Ghost" Reyes — 1st Vanguard Battalion', 'Day 4, 18:50'],
-    hint: 'Hold <b>[F]</b> at the ammo crate in the courtyard to resupply.',
+    hint: 'Hold <b>[E]</b> at the glowing supply crate in the courtyard to resupply. Fallen enemies drop weapons and ammo.',
     ambience: [['wind', 0.35]],
     async build(G, prog) {
       setupEnvironment(G, { hdri: 'belfast_sunset_puresky', sunDir: V(0.9, 0.14, -0.4), sunIntensity: 3.4, sunColor: 0xff9a55, envIntensity: 0.8, fogColor: 0xa47f68, fogDensity: 0.006, exposure: 1.05, skyTop: 0x34466e, skyHorizon: 0xf29a60, skyGround: 0x5a4030, clouds: 0.4, cloudColor: 0xffc8a0, skyBright: 1.2, hemi: 0.2, skyColor: 0xffb48a, groundColor: 0x5a4030, grade: { tint: 0xffeedd, saturation: 1.05, contrast: 1.1 } });
@@ -482,7 +513,6 @@ export const LEVELS = [
       prog(0.4, 'Building village');
       await desertVillage(G, M);
       const crate = V(-1, 0, 4);
-      await G.world.prop('old_military_crate', crate.x, crate.z, { mat: 'wood' });
       const W = { n: 0, active: false, spawned: 0, total: 5 };
       const sp = [[-60, 55], [60, 55], [-60, -70], [60, -70], [0, 66], [0, -80], [-62, 0], [62, 0]];
       const startWave = () => {
@@ -496,7 +526,8 @@ export const LEVELS = [
         }, i * 900);
         W.pending = count;
       };
-      const addResupply = () => G.interactables.push({ pos: crate, radius: 2, label: 'Hold <b>[F]</b> to resupply ammo &amp; grenades', time: 1.5, progress: 0, onDone: G => { G.player.refillAmmo(10); G.player.grenades.lethal = 2; G.player.grenades.tactical = 2; G.hud.toast('RESUPPLIED', 1.5); setTimeout(addResupply, 1500); } });
+      const addResupply = () => {};
+      G.pickups.add('supply', crate);
       let breakT = 0;
       return {
         spawn: V(0, 0, 8), spawnYaw: 0, exposure: 1.05,

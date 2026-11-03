@@ -210,9 +210,9 @@ export class Enemy {
 
   die(dir) {
     this.alive = false; this.state = 'dead'; this.deathT = 0;
+    try { this.mgr.onDeath?.(this); } catch (e) { console.warn(e); }
     this.deathDir = dir ? Math.atan2(dir.x, dir.z) : this.bodyYaw;
     this.deathFall = V(dir?.x || 0, 0, dir?.z || 0).normalize();
-    this.mixer.stopAllAction();
     if (this.rifle) { this.rifleVel = V(this.deathFall.x * 1.5, 1.5, this.deathFall.z * 1.5); this.rifleSpin = V(Math.random() * 4, Math.random() * 4, 0); }
   }
 
@@ -380,7 +380,7 @@ export class Enemy {
     const muzzle = this.muzzleWorld();
     const pChest = P.pos.clone().add(V(0, P.crouch ? 0.8 : 1.25, 0));
     G.effects.muzzleWorld(muzzle, pChest.clone().sub(muzzle).normalize(), 0.8);
-    audio.shot(this.weaponSound || 'ak', muzzle, false);
+    audio.shot(this.mgr.weaponSound || 'ak', muzzle, false);
     G.alertEnemies(this.pos, 35, this);
     if (Math.random() < chance) {
       P.damage(D.dmg * (0.8 + Math.random() * 0.4), this.pos);
@@ -476,9 +476,11 @@ export class Enemy {
 
 export class EnemyManager {
   constructor(G) { this.G = G; this.list = []; }
-  async init() {
+  async init(weaponId = 'ak47') {
     await loadSoldier();
-    if (!this.rifleTemplate) this.rifleTemplate = await buildThirdPersonRifle('ak');
+    this.weaponId = weaponId;
+    this.weaponSound = { ak47: 'ak', m4a1: 'ar', mp5: 'smg', m249: 'lmg' }[weaponId] || 'ak';
+    this.rifleTemplate = await buildThirdPersonRifle(weaponId === 'ak47' ? 'ak' : 'm4');
   }
   spawn(opts) { const e = new Enemy(this, opts); this.list.push(e); return e; }
   get alive() { return this.list.filter(e => e.alive && !e.hostage && !e.friendly); }

@@ -26,26 +26,38 @@ You don't need to install anything or run a web server. Keep the `assets` folder
 - **Lethal:** Frag grenade or Semtex. **Tactical:** Flashbang or Smoke.
 - **Perks (choose 2):** Stopping Power, Sleight of Hand, Juggernaut, Lightweight, Steady Aim, Scavenger
 
-## Controls
-| Key | Action |
+## Controls (all rebindable in CONTROLS)
+| Default key | Action |
 |-----|--------|
 | WASD / Mouse or Arrow keys | Move / look |
-| Left click, E or Enter | Fire (hold for automatic) |
+| Left click or Enter | Fire (hold for automatic) |
 | Right click (hold) or Z (toggle) | Aim down sights |
 | Shift | Sprint (or hold breath while scoped) |
 | Space | Jump |
 | C or Ctrl | Crouch (press while sprinting to slide) |
 | R | Reload |
+| **F** (or V) | **Knife: lunges at nearby enemies for a one-hit kill** |
+| **E (hold)** | **Interact: objectives, pick up weapons, resupply** |
 | 1 / 2 / Mouse wheel / X | Switch weapon |
 | B | Fire mode |
 | G / Q | Lethal / tactical grenade |
-| V | Melee |
-| F (hold) | Interact: download, plant C4, free hostage, resupply |
 | T / N | Flashlight / night vision |
-| Esc | Pause |
+| Esc | Pause (Save game, Load, Restart, Settings, Controls) |
+
+## Pickups and supplies
+- Fallen enemies drop their rifle. Walk over it to take its ammo if you carry the same gun, or hold **E** to swap it for the gun in your hands. Your old gun drops on the ground.
+- Enemies sometimes drop **ammo boxes** and **grenades**. Walk over them to collect.
+- Glowing **green supply crates** in every mission fully refill your ammo and grenades. They recharge after 25 seconds.
+
+## Saving
+- The game saves a **checkpoint** automatically every time you complete an objective.
+- You can also **SAVE GAME** from the pause menu at any time. This isn't available in Last Stand.
+- **CONTINUE** on the main menu resumes your last save. Finishing a mission sets Continue to the next one.
+- If you die, use **LAST CHECKPOINT** on the results screen to try again from your save.
+- Saves are stored in your browser, so the online version and your folder copy keep separate saves.
 
 ## Playing on a laptop touchpad
-- Use **Z** to toggle aim and **E** to fire, so you never have to hold two buttons at once.
+- Use **Z** to toggle aim and tap the touchpad (or press **Enter**) to fire, so you never have to hold two buttons at once. You can rebind fire to any key in CONTROLS.
 - The **arrow keys** turn your view if moving the touchpad while pressing WASD is awkward.
 - In **Settings**, turn on **Aim toggle** to make a single right-click switch aiming on or off.
 - On Windows, go to Settings → Bluetooth & devices → Touchpad → Taps and set **Touchpad sensitivity** to **Most sensitive**. Otherwise Windows ignores the touchpad while you hold movement keys.

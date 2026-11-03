@@ -43,6 +43,8 @@ export class Player {
     }
     this.grenades.lethal = L.lethal === 'c4' ? 2 : 2; this.grenades.tactical = L.tactical === 'smoke' ? 1 : 2;
     this.cur = 0; this.weapons[0].model.group.visible = true; this.switchT = 0.5; this.drawT = 0.5;
+    if (this.knife) this.G.engine.vmScene.remove(this.knife);
+    this.knife = this.buildKnife(); this.G.engine.vmScene.add(this.knife);
     // muzzle flash sprite in viewmodel scene
     if (!this.vmFlash) {
       this.vmFlash = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.G.effects.tex.flash, blending: THREE.AdditiveBlending, depthWrite: false })); this.vmFlash.material.color.setRGB(4, 3.4, 2.6);
@@ -74,11 +76,11 @@ export class Player {
   update(dt, input) {
     const G = this.G; this.time += dt;
     // keyboard-friendly controls (touchpad players): E = fire, Z = toggle aim, arrow keys = look
-    this.fireHeld = input.mouse.left || input.down('KeyE') || input.down('Enter');
-    this.firePressed = input.mouse.leftPressed || input.hit('KeyE') || input.hit('Enter');
-    if (input.hit('KeyZ')) this.adsToggled = !this.adsToggled;
-    if (input.mouse.rightPressed && G.settings.aimToggle) this.adsToggled = !this.adsToggled;
-    this.aimHeld = this.adsToggled || (input.mouse.right && !G.settings.aimToggle);
+    this.fireHeld = input.act('fire');
+    this.firePressed = input.actHit('fire');
+    if (input.actHit('aimToggle')) this.adsToggled = !this.adsToggled;
+    if (input.actHit('aim') && G.settings.aimToggle) this.adsToggled = !this.adsToggled;
+    this.aimHeld = this.adsToggled || (input.act('aim') && !G.settings.aimToggle);
     const S = G.settings;
     if (!this.alive) { this.updateCamera(dt); return; }
     const w = this.w;
@@ -86,24 +88,24 @@ export class Player {
     const sens = 0.0022 * S.sensitivity * (1 - this.ads * (1 - 1 / Math.max(1, w.st.zoom * 0.7)));
     this.yaw -= input.mouse.dx * sens;
     const ak = 2.4 * (S.sensitivity || 1) * (1 - this.ads * 0.6) * dt;
-    if (input.down('ArrowLeft')) this.yaw += ak; if (input.down('ArrowRight')) this.yaw -= ak;
-    if (input.down('ArrowUp')) this.pitch += ak * 0.7; if (input.down('ArrowDown')) this.pitch -= ak * 0.7;
+    if (input.act('lookLeft')) this.yaw += ak; if (input.act('lookRight')) this.yaw -= ak;
+    if (input.act('lookUp')) this.pitch += ak * 0.7; if (input.act('lookDown')) this.pitch -= ak * 0.7;
     this.pitch -= input.mouse.dy * sens * (S.invertY ? -1 : 1);
     this.pitch = Math.max(-1.5, Math.min(1.5, this.pitch));
     this.swayVel.x += input.mouse.dx * 0.00004; this.swayVel.y += input.mouse.dy * 0.00004;
 
     // ---------- movement ----------
-    const fwd = (input.down('KeyW') ? 1 : 0) - (input.down('KeyS') ? 1 : 0);
-    const str = (input.down('KeyD') ? 1 : 0) - (input.down('KeyA') ? 1 : 0);
+    const fwd = (input.act('forward') ? 1 : 0) - (input.act('back') ? 1 : 0);
+    const str = (input.act('right') ? 1 : 0) - (input.act('left') ? 1 : 0);
     const moving = fwd || str;
-    const wantCrouch = input.down('KeyC') || input.down('ControlLeft');
-    if (input.hit('KeyC') || input.hit('ControlLeft')) {
+    const wantCrouch = input.act('crouch');
+    if (input.actHit('crouch')) {
       if (this.sprint && this.onGround && this.slide <= 0) { this.slide = 0.75; this.slideDir = V(-Math.sin(this.yaw), 0, -Math.cos(this.yaw)); audio.play('step_dirt', { vol: 0.8, rate: 0.6 }); }
     }
     this.crouch = wantCrouch;
     const ceilingLow = this._ceiling !== undefined && this._ceiling - this.pos.y < 1.8;
     if (ceilingLow) this.crouch = true;
-    this.sprint = input.down('ShiftLeft') && fwd > 0 && !this.crouch && this.ads < 0.3 && !(w.st.scope && this.aimHeld);
+    this.sprint = input.act('sprint') && fwd > 0 && !this.crouch && this.ads < 0.3 && !(w.st.scope && this.aimHeld);
     if (this.sprint && this.fireHeld) this.sprint = false;
     if (this.sprint && this.reloading && !this.perks.includes('lightweight')) { /* allowed, CoD style */ }
     let speed = this.crouch ? 2.3 : this.sprint ? 7.0 : 4.5;
@@ -119,7 +121,7 @@ export class Player {
     }
     const accel = this.onGround ? 12 : 2.5;
     this.vel.x = damp(this.vel.x, _d.x, accel, dt); this.vel.z = damp(this.vel.z, _d.z, accel, dt);
-    if (input.hit('Space') && this.onGround && !ceilingLow) { this.vel.y = 6.2; this.onGround = false; this.slide = 0; }
+    if (input.actHit('jump') && this.onGround && !ceilingLow) { this.vel.y = 6.2; this.onGround = false; this.slide = 0; }
     this.vel.y -= 20 * dt;
     this.pos.x += this.vel.x * dt; this.pos.z += this.vel.z * dt; this.pos.y += this.vel.y * dt;
     const h = this.crouch ? 1.15 : 1.8;
@@ -147,11 +149,11 @@ export class Player {
     // ---------- weapon actions ----------
     this.updateWeapon(dt, input);
     // gadgets
-    if (input.hit('KeyG')) this.throwGrenade('lethal');
-    if (input.hit('KeyQ')) this.throwGrenade('tactical');
-    if (input.hit('KeyV')) this.melee();
-    if (input.hit('KeyN') && G.level?.night) { this.nvg = !this.nvg; audio.play('beep', { vol: 0.4 }); }
-    if (input.hit('KeyT')) { this.flashlightOn = !this.flashlightOn; audio.play('dry', { vol: 0.4 }); }
+    if (input.actHit('lethal')) this.throwGrenade('lethal');
+    if (input.actHit('tactical')) this.throwGrenade('tactical');
+    if (input.actHit('melee')) this.melee();
+    if (input.actHit('nvg') && G.level?.night) { this.nvg = !this.nvg; audio.play('beep', { vol: 0.4 }); }
+    if (input.actHit('flashlight')) { this.flashlightOn = !this.flashlightOn; audio.play('dry', { vol: 0.4 }); }
 
     // health regen (CoD style)
     if (this.health < this.maxHealth && this.time - this.lastHit > 4) this.health = Math.min(this.maxHealth, this.health + 40 * dt);
@@ -196,8 +198,8 @@ export class Player {
     const w = this.w, st = w.st, P = w.model, G = this.G;
     this.fireCd -= dt; this.switchT = Math.max(0, this.switchT - dt); this.throwT = Math.max(0, this.throwT - dt); this.meleeT = Math.max(0, this.meleeT - dt);
     // switching
-    if ((input.hit('Digit1') && this.cur !== 0) || (input.hit('Digit2') && this.cur !== 1) || input.mouse.wheel || input.hit('KeyX')) {
-      const next = input.hit('Digit1') ? 0 : input.hit('Digit2') ? 1 : 1 - this.cur;
+    if ((input.actHit('weapon1') && this.cur !== 0) || (input.actHit('weapon2') && this.cur !== 1) || input.mouse.wheel || input.actHit('swap')) {
+      const next = input.actHit('weapon1') ? 0 : input.actHit('weapon2') ? 1 : 1 - this.cur;
       if (next !== this.cur && this.switchT <= 0.25) { this.pendingSwitch = next; this.switchT = 0.5; this.adsToggled = false; this.reloading = false; this.boltPending = false; audio.play('switch', { vol: 0.5 }); }
     }
     if (this.pendingSwitch >= 0 && this.switchT <= 0.25) {
@@ -205,16 +207,16 @@ export class Player {
     }
     const busy = this.switchT > 0 || this.throwT > 0 || this.meleeT > 0;
     // fire mode
-    if (input.hit('KeyB') && st.modes.length > 1) { w.mode = (w.mode + 1) % st.modes.length; audio.play('dry', { vol: 0.5 }); G.hud.toast(st.modes[w.mode].toUpperCase()); }
+    if (input.actHit('firemode') && st.modes.length > 1) { w.mode = (w.mode + 1) % st.modes.length; audio.play('dry', { vol: 0.5 }); G.hud.toast(st.modes[w.mode].toUpperCase()); }
     // ADS
     const wantAds = this.aimHeld && !this.sprint && !busy && !(this.reloading && st.scope);
     this.ads = Math.max(0, Math.min(1, this.ads + (wantAds ? 1 : -1) * dt / st.ads));
     // breath (sniper)
     const scoped = st.scope && this.ads > 0.95;
-    if (scoped && input.down('ShiftLeft') && this.breath > 0) { this.holdBreath = 1; this.breath = Math.max(0, this.breath - dt / 4); }
+    if (scoped && input.act('sprint') && this.breath > 0) { this.holdBreath = 1; this.breath = Math.max(0, this.breath - dt / 4); }
     else { this.holdBreath = 0; this.breath = Math.min(1, this.breath + dt / 5); }
     // reload
-    if (input.hit('KeyR') && !this.reloading && w.ammo < st.mag && w.reserve > 0 && !busy) this.startReload();
+    if (input.actHit('reload') && !this.reloading && w.ammo < st.mag && w.reserve > 0 && !busy) this.startReload();
     if (this.reloading) {
       this.reloadT -= dt;
       const total = this.reloadTotal, t = 1 - this.reloadT / total;
@@ -373,7 +375,18 @@ export class Player {
     const sw = this.switchT > 0 ? Math.sin(Math.min(1, this.switchT / 0.5) * Math.PI) : 0;
     pos.y -= sw * 0.3; rx -= sw * 0.6;
     if (this.throwT > 0) { const e = Math.sin(this.throwT / 0.6 * Math.PI); pos.y -= e * 0.25; rx -= e * 0.4; }
-    if (this.meleeT > 0) { const r = 1 - this.meleeT / 0.5; const e = Math.sin(Math.min(1, r * 2) * Math.PI); pos.z -= e * 0.18; pos.x -= e * 0.12; ry += e * 0.5; rz -= e * 0.4; }
+    if (this.knife) {
+      if (this.meleeT > 0) {
+        const r = 1 - this.meleeT / 0.55; const low = Math.sin(Math.min(1, r * 1.6) * Math.PI);
+        pos.y -= low * 0.35; rx -= low * 0.5; pos.x += low * 0.08;
+        const k = this.knife; k.visible = true;
+        // slash: wind-up right/low -> sweep across to the left
+        const a = THREE.MathUtils.smoothstep(r, 0.12, 0.42);
+        const out = r < 0.12 ? r / 0.12 : r > 0.75 ? Math.max(0, 1 - (r - 0.75) / 0.25) : 1;
+        k.position.set(THREE.MathUtils.lerp(0.32, -0.12, a), THREE.MathUtils.lerp(-0.26, -0.12, a) - (1 - out) * 0.3, THREE.MathUtils.lerp(-0.32, -0.42, a));
+        k.rotation.set(-0.15 + a * 0.2, THREE.MathUtils.lerp(0.6, -0.9, a), THREE.MathUtils.lerp(-1.2, 0.6, a));
+      } else this.knife.visible = false;
+    }
     g.position.copy(pos); g.rotation.set(rx, ry, rz);
     // scope overlay: hide model
     const scoped = st.scope && this.ads > 0.92;
@@ -405,12 +418,66 @@ export class Player {
   }
 
   melee() {
-    if (this.meleeT > 0 || this.switchT > 0) return;
-    this.meleeT = 0.5; audio.play('melee', { vol: 0.6, rate: 1.4 });
+    if (this.meleeT > 0 || this.switchT > 0 || this.throwT > 0) return;
+    this.meleeT = 0.55; this.reloading = false; this.ads = 0; this.adsToggled = false;
+    audio.play('whiz', { vol: 0.35, rate: 0.55, reverb: 0 });
+    // lunge toward a nearby enemy in front of us
+    const fwd = this.forward(V());
+    const tgt = this.G.enemies.meleeTarget(this.pos, fwd, 3.6);
+    if (tgt) {
+      const d = V(tgt.pos.x - this.pos.x, 0, tgt.pos.z - this.pos.z); const dist = d.length();
+      if (dist > 1.2) { d.normalize(); this.vel.x = d.x * Math.min(14, (dist - 0.9) / 0.15); this.vel.z = d.z * Math.min(14, (dist - 0.9) / 0.15); }
+      this.yaw = Math.atan2(-(tgt.pos.x - this.pos.x), -(tgt.pos.z - this.pos.z));
+    }
     setTimeout(() => {
-      const hit = this.G.enemies.meleeTarget(this.pos, this.forward(V()), 2.2);
-      if (hit) { this.G.damageEnemy(hit, 150, false, this.forward(V()), hit.pos.clone().add(V(0, 1.3, 0))); audio.play('hit_flesh', { vol: 1 }); this.G.hud.hitmarker(false, true); }
-    }, 150);
+      if (!this.alive) return;
+      const hit = this.G.enemies.meleeTarget(this.pos, this.forward(V()), 2.6);
+      if (hit) {
+        const dir = this.forward(V());
+        const killed = this.G.damageEnemy(hit, 999, false, dir, hit.pos.clone().add(V(0, 1.3, 0)), 'KNIFE KILL');
+        audio.play('hit_flesh', { vol: 1.1, rate: 0.9 }); audio.play('melee', { vol: 0.6, rate: 1.3 });
+        this.G.hud.hitmarker(false, killed); this.shake = Math.min(1, this.shake + 0.25);
+      } else {
+        // knife a wall?
+        const h = this.G.world.raycast(this.eyePos(V()), this.forward(V()), 1.8);
+        if (h) { this.G.effects.impact(h.point, h.normal, h.mat); audio.play('hit_' + (h.mat === 'metal' ? 'metal' : h.mat === 'wood' ? 'wood' : 'concrete'), { vol: 0.6 }); }
+      }
+    }, 170);
+  }
+
+  buildKnife() {
+    const g = new THREE.Group();
+    const steel = new THREE.MeshStandardMaterial({ color: 0xb8bcc2, metalness: 1, roughness: 0.22 });
+    const dark = new THREE.MeshStandardMaterial({ color: 0x1b1c1e, metalness: 0.2, roughness: 0.7 });
+    const glove = new THREE.MeshStandardMaterial({ color: 0x2a2724, roughness: 0.75 });
+    const blade = new THREE.Mesh(new THREE.BoxGeometry(0.006, 0.032, 0.17), steel); blade.position.z = -0.12;
+    const tip = new THREE.Mesh(new THREE.ConeGeometry(0.0226, 0.05, 4), steel); tip.rotation.x = -Math.PI / 2; tip.rotation.y = Math.PI / 4; tip.scale.set(0.27, 1, 1); tip.position.z = -0.23;
+    const guard = new THREE.Mesh(new THREE.BoxGeometry(0.014, 0.06, 0.012), dark); guard.position.z = -0.03;
+    const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.016, 0.11, 10), dark); handle.rotation.x = Math.PI / 2; handle.position.z = 0.03;
+    const fist = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.08, 0.1), glove); fist.position.set(0.005, -0.005, 0.035);
+    const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.035, 0.35, 12), this.weapons[0].model.arms.children[0]?.material || glove); arm.rotation.x = Math.PI / 2; arm.position.set(0.02, -0.02, 0.24);
+    g.add(blade, tip, guard, handle, fist, arm);
+    g.traverse(o => { if (o.isMesh) o.frustumCulled = false; });
+    g.scale.setScalar(0.8);
+    g.visible = false;
+    return g;
+  }
+
+  // pick up a weapon from the ground, replacing the one in hand; returns the dropped weapon's state
+  async swapWeapon(id, ammo, reserve) {
+    if (this._swapping) return null; this._swapping = true;
+    try {
+      const att = this.loadout.att?.[id] || {};
+      const st = computeStats(id, att, this.perks);
+      const model = await buildViewmodel(id, att);
+      const old = this.weapons[this.cur];
+      old.model.group.visible = false; this.vm.remove(old.model.group);
+      model.group.visible = true; this.vm.add(model.group);
+      this.weapons[this.cur] = { id, st, model, ammo: Math.min(st.mag, ammo), reserve, mode: 0 };
+      this.reloading = false; this.boltPending = false; this.ads = 0; this.adsToggled = false; this.switchT = 0.5;
+      audio.play('switch', { vol: 0.6 }); this.G.hud.pickupMsg(st.name.toUpperCase());
+      return { id: old.id, ammo: old.ammo, reserve: old.reserve };
+    } finally { this._swapping = false; }
   }
 
   refillAmmo(frac = 1) {

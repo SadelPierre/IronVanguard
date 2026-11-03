@@ -3,6 +3,7 @@ import { WEAPONS, ATTACHMENTS, LETHALS, TACTICALS, PERKS, allowedAttachments, co
 import { DIFFICULTY } from './enemies.js';
 import { LEVELS } from './levels.js';
 import { audio } from './audio.js';
+import { ACTIONS, defaultBinds, keyName } from './input.js';
 
 const $ = s => document.querySelector(s);
 const store = {
@@ -30,6 +31,9 @@ export class UI {
     this.root.addEventListener('click', e => { if (e.target.closest('button,.card,.opt')) audio.play('ui', { vol: 0.3, reverb: 0 }); });
   }
 
+  readSave() { return store.get('save', null); }
+  writeSave(d) { store.set('save', d); }
+  clearSave() { try { localStorage.removeItem('iv_save'); } catch (e) {} }
   save() { store.set('settings', this.settings); store.set('loadout', this.loadout); store.set('progress', this.progress); }
   show(on) { this.root.style.display = on ? 'flex' : 'none'; }
 
@@ -41,16 +45,18 @@ export class UI {
 
   main() {
     audio.startMusic('menu');
+    const sv = this.readSave();
     this.screen(`
       <div class="title"><div class="t1">IRON VANGUARD</div><div class="t2">MODERN OPERATIONS</div></div>
       <div class="mainnav">
-        <button data-a="campaign" class="primary">CAMPAIGN</button>
+        ${sv ? `<button data-a="cont" class="primary">CONTINUE<small>${sv.levelName} — ${sv.fresh ? 'mission start' : sv.objText}</small></button>` : ''}
+        <button data-a="campaign" class="${sv ? '' : 'primary'}">CAMPAIGN</button>
         <button data-a="loadoutMain">LOADOUT</button>
         <button data-a="settingsMain">SETTINGS</button>
-        <button data-a="controls">CONTROLS</button>
+        <button data-a="controlsMain">CONTROLS</button>
       </div>
       <div class="foot">Built with three.js • CC0 art from Poly Haven • Fully synthesized audio</div>`, 'main');
-    this.root.querySelectorAll('[data-a]').forEach(b => b.onclick = () => this[b.dataset.a]());
+    this.root.querySelectorAll('[data-a]').forEach(b => b.onclick = () => b.dataset.a === 'cont' ? this.onContinue(sv) : this[b.dataset.a]());
   }
 
   campaign() {
@@ -148,11 +154,38 @@ export class UI {
   }
   settingsMain() { this.settingsScreen(() => this.main()); }
 
+  controlsMain() { this.controls(() => this.main()); }
   controls(back) {
-    const rows = [['W A S D', 'Move'], ['Mouse', 'Look'], ['Left click / E / Enter', 'Fire (hold for automatic)'], ['Right click (hold) / Z (toggle)', 'Aim down sights'], ['Arrow keys', 'Look around without a mouse'], ['Shift', 'Sprint / hold breath (scoped)'], ['Space', 'Jump'], ['C / Ctrl', 'Crouch (while sprinting: slide)'], ['R', 'Reload'], ['1 / 2 / Mouse wheel / X', 'Switch weapon'], ['B', 'Toggle fire mode'], ['G', 'Lethal grenade'], ['Q', 'Tactical grenade'], ['V', 'Melee'], ['F (hold)', 'Interact / plant / free hostage'], ['T', 'Flashlight'], ['N', 'Night vision (night missions)'], ['Esc', 'Pause']];
-    this.screen(`<div class="hdr"><button class="back">‹ BACK</button><h1>CONTROLS</h1></div>
-      <div class="controls">${rows.map(([k, v]) => `<div class="crow"><kbd>${k}</kbd><span>${v}</span></div>`).join('')}</div>`);
-    this.root.querySelector('.back').onclick = () => (typeof back === 'function' ? back() : this.main());
+    const B = this.settings.binds = { ...defaultBinds(), ...(this.settings.binds || {}) };
+    const rows = ACTIONS.map(([a, label]) => `<div class="crow"><span>${label}</span>${[0, 1].map(i => `<div class="bind" data-a="${a}" data-i="${i}">${keyName(B[a][i])}</div>`).join('')}</div>`).join('');
+    this.screen(`<div class="hdr"><button class="back">‹ BACK</button><h1>CONTROLS</h1><button class="small reset">RESET TO DEFAULTS</button></div>
+      <p class="note">Click a box, then press a key or mouse button. Press <b>Esc</b> to cancel, <b>Backspace</b> to clear. Mouse wheel always swaps weapons; Esc always pauses.</p>
+      <div class="controls">${rows}</div>`);
+    const back2 = () => { this.save(); this.onSettings?.(); (typeof back === 'function' ? back() : this.main()); };
+    this.root.querySelector('.back').onclick = back2;
+    this.root.querySelector('.reset').onclick = () => { this.settings.binds = defaultBinds(); this.save(); this.onSettings?.(); this.controls(back); };
+    this.root.querySelectorAll('.bind').forEach(el => el.onclick = ev => {
+      ev.stopPropagation();
+      this.root.querySelectorAll('.bind.wait').forEach(x => { x.classList.remove('wait'); x.textContent = keyName(B[x.dataset.a][+x.dataset.i]); });
+      el.classList.add('wait'); el.textContent = 'press a key…';
+      const inp = this.input;
+      setTimeout(() => {
+        inp.capture = code => {
+          inp.capture = null;
+          if (code !== 'Escape') {
+            const a = el.dataset.a, i = +el.dataset.i;
+            if (code === 'Backspace') B[a][i] = '';
+            else {
+              // a key can only do one thing: remove it from other actions
+              for (const k of Object.keys(B)) B[k] = B[k].map(c => (c === code ? '' : c));
+              B[a][i] = code;
+            }
+            this.save(); this.onSettings?.();
+          }
+          this.controls(back);
+        };
+      }, 50);
+    });
   }
 
   loading(level) {
@@ -172,6 +205,8 @@ export class UI {
   pause(handlers) {
     this.screen(`<div class="pause"><h1>PAUSED</h1>
       <button class="primary" data-a="resume">RESUME</button>
+      ${handlers.canSave ? '<button data-a="save">SAVE GAME</button>' : ''}
+      ${handlers.hasSave ? '<button data-a="load">LOAD LAST SAVE</button>' : ''}
       <button data-a="restart">RESTART MISSION</button>
       <button data-a="settings">SETTINGS</button>
       <button data-a="controls">CONTROLS</button>
@@ -180,6 +215,7 @@ export class UI {
       const a = b.dataset.a;
       if (a === 'settings') this.settingsScreen(() => this.pause(handlers));
       else if (a === 'controls') this.controls(() => this.pause(handlers));
+      else if (a === 'save') { handlers.save(); this.pause({ ...handlers, hasSave: true }); }
       else handlers[a]();
     });
   }
@@ -205,11 +241,13 @@ export class UI {
       </div>
       <div class="btns">
         ${win && next ? `<button class="primary" data-a="next">NEXT MISSION ›</button>` : ''}
-        <button class="${win && next ? '' : 'primary'}" data-a="retry">${win ? 'REPLAY' : 'RETRY'}</button>
+        ${!win && this.readSave()?.levelId === s.level.id && !this.readSave()?.fresh ? '<button class="primary" data-a="checkpoint">LAST CHECKPOINT</button>' : ''}
+        <button class="${win && next ? '' : (!win && this.readSave()?.levelId === s.level.id && !this.readSave()?.fresh ? '' : 'primary')}" data-a="retry">${win ? 'REPLAY' : 'RESTART MISSION'}</button>
         <button data-a="menu">CAMPAIGN</button>
       </div></div>`, 'resultsS');
     this.root.querySelectorAll('[data-a]').forEach(b => b.onclick = () => {
       if (b.dataset.a === 'next') { this.selectedLevel = next.id; this.onDeploy(next.id); }
+      else if (b.dataset.a === 'checkpoint') this.onContinue(this.readSave());
       else if (b.dataset.a === 'retry') this.onDeploy(s.level.id);
       else this.campaign();
     });

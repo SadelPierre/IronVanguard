@@ -20,6 +20,7 @@ export class HUD {
       <div id="feed"></div>
       <div id="interact"><div class="lbl"></div><div class="bar"><div></div></div></div>
       <div id="toast"></div>
+      <div id="pickmsg"></div>
       <div id="nade"><div class="ic">💣</div></div>
       <div id="scope"><div class="mask"></div><div class="lines"></div><div class="breath"></div></div>
       <div id="intro"></div>
@@ -53,6 +54,7 @@ export class HUD {
     const d = document.createElement('div'); d.className = 'k'; d.innerHTML = `<b>+${pts}</b> ${text}`;
     this.feed.prepend(d); setTimeout(() => d.remove(), 2200);
   }
+  pickupMsg(text) { const d = document.createElement('div'); d.textContent = text; const el = document.getElementById('pickmsg'); el.appendChild(d); setTimeout(() => d.remove(), 1600); }
   toast(text, t = 1.5) { this.toastEl.textContent = text; this.toastEl.style.opacity = 1; clearTimeout(this._tt); this._tt = setTimeout(() => this.toastEl.style.opacity = 0, t * 1000); }
   showHint(text, t = 6) { this.hint.innerHTML = text; this.hint.style.opacity = 1; clearTimeout(this._ht); this._ht = setTimeout(() => this.hint.style.opacity = 0, t * 1000); }
 
