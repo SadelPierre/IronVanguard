@@ -156,7 +156,7 @@ export const LEVELS = [
     briefing: 'Before you deploy, prove you can handle your loadout. Run the qualification course: hip-fire, long-range marksmanship, grenade handling and close-quarters clearing. The clock is running, soldier.',
     objectivesPreview: ['Hip-fire qualification', 'Long-range marksmanship', 'Grenade handling', 'Clear the shoot house', 'Sprint to the finish'],
     intro: ['BOOT CAMP', 'Camp Hornet, Nevada', 'Sgt. "Ghost" Reyes — 1st Vanguard Battalion', 'Day 1, 09:20'],
-    hint: 'Move: <b>WASD</b> &nbsp; Look: <b>Mouse</b> &nbsp; Fire: <b>LMB</b> &nbsp; Aim: <b>RMB</b> &nbsp; Sprint: <b>Shift</b> &nbsp; Reload: <b>R</b>',
+    hint: 'Move: <b>WASD</b> &nbsp; Look: <b>Mouse/Arrows</b> &nbsp; Fire: <b>Click or E</b> &nbsp; Aim: <b>RMB or Z</b> &nbsp; Sprint: <b>Shift</b> &nbsp; Reload: <b>R</b>',
     ambience: [['wind', 0.25]],
     async build(G, prog) {
       setupEnvironment(G, { hdri: 'kloofendal_48d_partly_cloudy_puresky', sunDir: V(-0.5, 0.9, 0.35), sunIntensity: 3.2, sunColor: 0xfff0dc, envIntensity: 0.9, fogColor: 0xbcd0e6, fogDensity: 0.0032, exposure: 1.0, skyTop: 0x2a5aa0, skyHorizon: 0xbfd2e4, clouds: 0.5, hemi: 0.2, groundColor: 0x5a6a40, grade: { saturation: 1.05 } });

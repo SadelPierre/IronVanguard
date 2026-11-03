@@ -7,7 +7,7 @@ export class Input {
     this.locked = false; this.enabled = false; this.fallback = false;
     addEventListener('keydown', e => {
       if (!this.enabled) return;
-      if (['Tab', 'Space', 'ArrowUp', 'ArrowDown'].includes(e.code)) e.preventDefault();
+      if (['Tab', 'Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Enter'].includes(e.code)) e.preventDefault();
       if (e.ctrlKey && e.code !== 'ControlLeft') e.preventDefault();
       if (!this.keys.has(e.code)) this.pressed.add(e.code);
       this.keys.add(e.code);

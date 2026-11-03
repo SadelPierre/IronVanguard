@@ -10,7 +10,7 @@ const store = {
   set(k, v) { try { localStorage.setItem('iv_' + k, JSON.stringify(v)); } catch (e) {} },
 };
 
-export const DEFAULT_SETTINGS = { quality: 'high', renderScale: 1, sensitivity: 1, fov: 78, invertY: false, master: 0.8, music: 0.5, showFps: false, autoReload: true, difficulty: 'regular' };
+export const DEFAULT_SETTINGS = { quality: 'high', renderScale: 1, sensitivity: 1, fov: 78, invertY: false, master: 0.8, music: 0.5, showFps: false, autoReload: true, aimToggle: false, difficulty: 'regular' };
 export const DEFAULT_LOADOUT = {
   primary: 'm4a1', secondary: 'm9', lethal: 'frag', tactical: 'flash', perks: ['stopping', 'sleight'],
   att: { m4a1: { optic: 'reddot', muzzle: 'none', under: 'grip', mag: 'std' }, ak47: { optic: 'iron', muzzle: 'none', under: 'none', mag: 'std' }, mp5: { optic: 'holo', muzzle: 'suppressor', under: 'none', mag: 'std' }, m870: { optic: 'iron', muzzle: 'none', under: 'none', mag: 'std' }, m249: { optic: 'iron', muzzle: 'none', under: 'none', mag: 'std' }, bolt762: { muzzle: 'none', mag: 'std' }, m9: { optic: 'iron', muzzle: 'none', under: 'none', mag: 'std' }, d50: { optic: 'iron', muzzle: 'none', under: 'none', mag: 'std' } },
@@ -132,6 +132,7 @@ export class UI {
         <h2>CONTROLS</h2>
         ${rng('sensitivity', 0.2, 3, 0.05, 'Mouse sensitivity', v => (+v).toFixed(2))}
         ${tg('invertY', 'Invert Y')}
+        ${tg('aimToggle', 'Aim toggle (tap right-click once to aim; good for touchpads)')}
         ${tg('autoReload', 'Auto reload')}
         <h2>AUDIO</h2>
         ${rng('master', 0, 1, 0.05, 'Master volume', v => Math.round(v * 100))}
@@ -148,7 +149,7 @@ export class UI {
   settingsMain() { this.settingsScreen(() => this.main()); }
 
   controls(back) {
-    const rows = [['W A S D', 'Move'], ['Mouse', 'Look'], ['Left click', 'Fire'], ['Right click', 'Aim down sights'], ['Shift', 'Sprint / hold breath (scoped)'], ['Space', 'Jump'], ['C / Ctrl', 'Crouch (while sprinting: slide)'], ['R', 'Reload'], ['1 / 2 / Mouse wheel / X', 'Switch weapon'], ['B', 'Toggle fire mode'], ['G', 'Lethal grenade'], ['Q', 'Tactical grenade'], ['V', 'Melee'], ['F (hold)', 'Interact / plant / free hostage'], ['T', 'Flashlight'], ['N', 'Night vision (night missions)'], ['Esc', 'Pause']];
+    const rows = [['W A S D', 'Move'], ['Mouse', 'Look'], ['Left click / E / Enter', 'Fire (hold for automatic)'], ['Right click (hold) / Z (toggle)', 'Aim down sights'], ['Arrow keys', 'Look around without a mouse'], ['Shift', 'Sprint / hold breath (scoped)'], ['Space', 'Jump'], ['C / Ctrl', 'Crouch (while sprinting: slide)'], ['R', 'Reload'], ['1 / 2 / Mouse wheel / X', 'Switch weapon'], ['B', 'Toggle fire mode'], ['G', 'Lethal grenade'], ['Q', 'Tactical grenade'], ['V', 'Melee'], ['F (hold)', 'Interact / plant / free hostage'], ['T', 'Flashlight'], ['N', 'Night vision (night missions)'], ['Esc', 'Pause']];
     this.screen(`<div class="hdr"><button class="back">‹ BACK</button><h1>CONTROLS</h1></div>
       <div class="controls">${rows.map(([k, v]) => `<div class="crow"><kbd>${k}</kbd><span>${v}</span></div>`).join('')}</div>`);
     this.root.querySelector('.back').onclick = () => (typeof back === 'function' ? back() : this.main());

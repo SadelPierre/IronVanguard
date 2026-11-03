@@ -266,7 +266,7 @@ export class Game {
       const it = this.interactables[i];
       if (P.pos.distanceTo(it.pos) < it.radius + 0.5 && Math.abs(P.pos.y - it.pos.y) < 2) {
         shown = it;
-        if (this.input.down('KeyF') || this.input.down('KeyE')) {
+        if (this.input.down('KeyF')) {
           if (it.progress === 0) audio.play('beep', { vol: 0.3 });
           it.progress += dt / it.time;
           if (it.progress >= 1) {

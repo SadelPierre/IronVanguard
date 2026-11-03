@@ -73,12 +73,21 @@ export class Player {
 
   update(dt, input) {
     const G = this.G; this.time += dt;
+    // keyboard-friendly controls (touchpad players): E = fire, Z = toggle aim, arrow keys = look
+    this.fireHeld = input.mouse.left || input.down('KeyE') || input.down('Enter');
+    this.firePressed = input.mouse.leftPressed || input.hit('KeyE') || input.hit('Enter');
+    if (input.hit('KeyZ')) this.adsToggled = !this.adsToggled;
+    if (input.mouse.rightPressed && G.settings.aimToggle) this.adsToggled = !this.adsToggled;
+    this.aimHeld = this.adsToggled || (input.mouse.right && !G.settings.aimToggle);
     const S = G.settings;
     if (!this.alive) { this.updateCamera(dt); return; }
     const w = this.w;
     // ---------- look ----------
     const sens = 0.0022 * S.sensitivity * (1 - this.ads * (1 - 1 / Math.max(1, w.st.zoom * 0.7)));
     this.yaw -= input.mouse.dx * sens;
+    const ak = 2.4 * (S.sensitivity || 1) * (1 - this.ads * 0.6) * dt;
+    if (input.down('ArrowLeft')) this.yaw += ak; if (input.down('ArrowRight')) this.yaw -= ak;
+    if (input.down('ArrowUp')) this.pitch += ak * 0.7; if (input.down('ArrowDown')) this.pitch -= ak * 0.7;
     this.pitch -= input.mouse.dy * sens * (S.invertY ? -1 : 1);
     this.pitch = Math.max(-1.5, Math.min(1.5, this.pitch));
     this.swayVel.x += input.mouse.dx * 0.00004; this.swayVel.y += input.mouse.dy * 0.00004;
@@ -94,8 +103,8 @@ export class Player {
     this.crouch = wantCrouch;
     const ceilingLow = this._ceiling !== undefined && this._ceiling - this.pos.y < 1.8;
     if (ceilingLow) this.crouch = true;
-    this.sprint = input.down('ShiftLeft') && fwd > 0 && !this.crouch && this.ads < 0.3 && !(w.st.scope && input.mouse.right);
-    if (this.sprint && input.mouse.left) this.sprint = false;
+    this.sprint = input.down('ShiftLeft') && fwd > 0 && !this.crouch && this.ads < 0.3 && !(w.st.scope && this.aimHeld);
+    if (this.sprint && this.fireHeld) this.sprint = false;
     if (this.sprint && this.reloading && !this.perks.includes('lightweight')) { /* allowed, CoD style */ }
     let speed = this.crouch ? 2.3 : this.sprint ? 7.0 : 4.5;
     speed *= w.st.move * this.speedMul * (1 - this.ads * 0.45);
@@ -189,7 +198,7 @@ export class Player {
     // switching
     if ((input.hit('Digit1') && this.cur !== 0) || (input.hit('Digit2') && this.cur !== 1) || input.mouse.wheel || input.hit('KeyX')) {
       const next = input.hit('Digit1') ? 0 : input.hit('Digit2') ? 1 : 1 - this.cur;
-      if (next !== this.cur && this.switchT <= 0.25) { this.pendingSwitch = next; this.switchT = 0.5; this.reloading = false; this.boltPending = false; audio.play('switch', { vol: 0.5 }); }
+      if (next !== this.cur && this.switchT <= 0.25) { this.pendingSwitch = next; this.switchT = 0.5; this.adsToggled = false; this.reloading = false; this.boltPending = false; audio.play('switch', { vol: 0.5 }); }
     }
     if (this.pendingSwitch >= 0 && this.switchT <= 0.25) {
       w.model.group.visible = false; this.cur = this.pendingSwitch; this.pendingSwitch = -1; this.w.model.group.visible = true; this.ads = 0;
@@ -198,7 +207,7 @@ export class Player {
     // fire mode
     if (input.hit('KeyB') && st.modes.length > 1) { w.mode = (w.mode + 1) % st.modes.length; audio.play('dry', { vol: 0.5 }); G.hud.toast(st.modes[w.mode].toUpperCase()); }
     // ADS
-    const wantAds = input.mouse.right && !this.sprint && !busy && !(this.reloading && st.scope);
+    const wantAds = this.aimHeld && !this.sprint && !busy && !(this.reloading && st.scope);
     this.ads = Math.max(0, Math.min(1, this.ads + (wantAds ? 1 : -1) * dt / st.ads));
     // breath (sniper)
     const scoped = st.scope && this.ads > 0.95;
@@ -217,22 +226,22 @@ export class Player {
       if (this.reloadT <= 0) {
         if (st.shellReload) {
           w.ammo++; w.reserve--; audio.play('shell', { vol: 0.7 });
-          if (w.ammo < st.mag && w.reserve > 0 && !input.mouse.left) { this.reloadT = st.reload; this.reloadTotal = st.reload; }
+          if (w.ammo < st.mag && w.reserve > 0 && !this.fireHeld) { this.reloadT = st.reload; this.reloadTotal = st.reload; }
           else { this.reloading = false; audio.play('pump', { vol: 0.7 }); this.fireCd = 0.3; }
         } else {
           const need = st.mag - w.ammo, take = Math.min(need, w.reserve); w.ammo += take; w.reserve -= take; this.reloading = false;
         }
       }
-      if (st.shellReload && input.mouse.leftPressed && w.ammo > 0) { this.reloading = false; this.fireCd = 0.15; }
+      if (st.shellReload && this.firePressed && w.ammo > 0) { this.reloading = false; this.fireCd = 0.15; }
     }
     // bolt / pump cycling
     if (this.boltPending && this.fireCd <= 0.25 && !this._boltSound) { this._boltSound = true; audio.play(st.model === 'shotgun' ? 'pump' : 'bolt', { vol: 0.8 }); }
     // firing
     const mode = st.modes[w.mode];
-    const trigger = (mode === 'auto') ? input.mouse.left : input.mouse.leftPressed;
+    const trigger = (mode === 'auto') ? this.fireHeld : this.firePressed;
     if (trigger && !busy && !this.reloading && this.fireCd <= 0) {
       if (w.ammo > 0) this.fire();
-      else if (input.mouse.leftPressed) { audio.play('dry', { vol: 0.6 }); if (w.reserve > 0) this.startReload(); this.fireCd = 0.25; }
+      else if (this.firePressed) { audio.play('dry', { vol: 0.6 }); if (w.reserve > 0) this.startReload(); this.fireCd = 0.25; }
     }
     if (w.ammo === 0 && w.reserve > 0 && !this.reloading && !busy && this.fireCd <= 0 && G.settings.autoReload) this.startReload();
     this.bloom = damp(this.bloom, 0, 4.5, dt);

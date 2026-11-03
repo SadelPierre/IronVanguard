@@ -29,8 +29,9 @@ You don't need to install anything or run a web server. Keep the `assets` folder
 ## Controls
 | Key | Action |
 |-----|--------|
-| WASD / Mouse | Move / look |
-| Left click / Right click | Fire / aim down sights |
+| WASD / Mouse or Arrow keys | Move / look |
+| Left click, E or Enter | Fire (hold for automatic) |
+| Right click (hold) or Z (toggle) | Aim down sights |
 | Shift | Sprint (or hold breath while scoped) |
 | Space | Jump |
 | C or Ctrl | Crouch (press while sprinting to slide) |
@@ -42,6 +43,12 @@ You don't need to install anything or run a web server. Keep the `assets` folder
 | F (hold) | Interact: download, plant C4, free hostage, resupply |
 | T / N | Flashlight / night vision |
 | Esc | Pause |
+
+## Playing on a laptop touchpad
+- Use **Z** to toggle aim and **E** to fire, so you never have to hold two buttons at once.
+- The **arrow keys** turn your view if moving the touchpad while pressing WASD is awkward.
+- In **Settings**, turn on **Aim toggle** to make a single right-click switch aiming on or off.
+- On Windows, go to Settings → Bluetooth & devices → Touchpad → Taps and set **Touchpad sensitivity** to **Most sensitive**. Otherwise Windows ignores the touchpad while you hold movement keys.
 
 ## Performance
 The default graphics preset is **High**: 4K shadow maps, ambient occlusion (GTAO), bloom and SMAA. On a laptop or an older GPU, go to **SETTINGS** and choose **Medium** or **Low**, or lower the **Render scale**. **Ultra** renders above native resolution for powerful desktop GPUs.
