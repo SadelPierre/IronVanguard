@@ -21,7 +21,7 @@ export class Player {
     this.bloom = 0; this.sway = V(); this.swayVel = V(); this.kick = 0; this.kickRot = 0;
     this.grenades = { lethal: 0, tactical: 0 }; this.throwT = 0; this.meleeT = 0;
     this.flash = 0; this.damageFlash = 0; this.time = 0;
-    this.stats = { shots: 0, hits: 0, kills: 0, headshots: 0 };
+    this.stats = { shots: 0, hits: 0, kills: 0, headshots: 0, targets: 0 };
     this.vm = new THREE.Group(); G.engine.vmScene.add(this.vm);
     this.holdBreath = 0; this.breath = 1;
     this.nvg = false; this.flashlightOn = false;
@@ -265,7 +265,7 @@ export class Player {
 
   fire() {
     const w = this.w, st = w.st, G = this.G, P = w.model;
-    w.ammo--; this.stats.shots++;
+    w.ammo--; if (!this.G.completed && !this.G.failed) this.stats.shots++;
     this.fireCd = 60 / st.rpm;
     if (st.bolt || st.model === 'shotgun') { this.boltPending = true; this._boltSound = false; this.fireCd = 60 / st.rpm; }
     const eye = this.eyePos(_o), dir = this.forward(V());
@@ -280,9 +280,10 @@ export class Player {
       d.addScaledVector(_r, Math.cos(a) * r).addScaledVector(_u, Math.sin(a) * r).normalize();
       const res = G.bullet(eye, d, st, true);
       if (res?.enemy) { anyHit = true; if (res.head) head = true; if (res.killed) killed = true; }
+      else if (res?.target) anyHit = true;
       if (i === 0 && (this.stats.shots % 3 === 0 || st.pellets)) G.effects.tracer(this.muzzleWorld(), res ? res.point : eye.clone().addScaledVector(d, 120));
     }
-    if (anyHit) { this.stats.hits++; G.hud.hitmarker(head, killed); audio.play(head ? 'headshot' : 'hitmarker', { vol: 0.5, reverb: 0 }); }
+    if (anyHit) { if (!this.G.completed && !this.G.failed) this.stats.hits++; G.hud.hitmarker(head, killed); audio.play(head ? 'headshot' : 'hitmarker', { vol: 0.5, reverb: 0 }); }
     // sound + alert
     audio.shot(st.suppressed ? 'suppressed' : st.sound, null, true);
     G.alertEnemies(this.pos, st.suppressed ? 12 : 70);

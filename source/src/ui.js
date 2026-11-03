@@ -197,9 +197,10 @@ export class UI {
       ${reason ? `<p class="reason">${reason}</p>` : ''}
       <div class="rs">
         <div><b>${fmtTime(s.time)}</b><span>TIME</span></div>
-        <div><b>${s.kills}</b><span>KILLS</span></div>
+        ${s.targets ? `<div><b>${s.targets}</b><span>TARGETS</span></div>` : `<div><b>${s.kills}</b><span>KILLS</span></div>`}
         <div><b>${s.headshots}</b><span>HEADSHOTS</span></div>
         <div><b>${s.acc}%</b><span>ACCURACY</span></div>
+        <div><b>${s.hits}/${s.shots}</b><span>HITS / SHOTS</span></div>
         <div><b>${s.difficulty}</b><span>DIFFICULTY</span></div>
       </div>
       <div class="btns">

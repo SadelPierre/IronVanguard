@@ -97,8 +97,8 @@ export class Game {
       const m = wh.mat === 'metal' ? 'metal' : wh.mat === 'wood' ? 'wood' : ['dirt', 'sand', 'grass', 'ground'].includes(wh.mat) ? 'dirt' : 'concrete';
       if (wh.dist < 60) audio.play('hit_' + m, { pos: wh.point, vol: 0.45, reverb: 0.1 });
       const c = wh.collider;
-      if (c.target && !c.down) this.hitTarget(c);
-      if (c.explosive && !c.exploded) { c.hp -= st.damage[0]; if (c.hp <= 0) this.explodeProp(c); }
+      if (c.target && !c.down) { this.hitTarget(c); if (isPlayer) return { point: wh.point, target: true }; }
+      if (c.explosive && !c.exploded) { c.hp -= st.damage[0]; if (c.hp <= 0) this.explodeProp(c, isPlayer); }
       return { point: wh.point };
     }
     return null;
@@ -108,7 +108,7 @@ export class Game {
     this.effects.blood(point, dir);
     audio.play('hit_flesh', { pos: point, vol: 0.7, reverb: 0 });
     const killed = e.takeDamage(dmg, dir);
-    if (killed) {
+    if (killed && !this.completed && !this.failed) {
       this.killCount++; this.player.stats.kills++; if (head) this.player.stats.headshots++;
       this.hud.killfeed(head ? 'HEADSHOT' : 'KILL', head ? 150 : 100);
       audio.play('kill', { vol: 0.35, reverb: 0 });
@@ -121,7 +121,7 @@ export class Game {
   alertEnemies(pos, radius, source) { this.enemies.alert(pos, radius, source); }
 
   hitTarget(c) {
-    c.down = true; this.targetHits = (this.targetHits || 0) + 1;
+    c.down = true; this.targetHits = (this.targetHits || 0) + 1; this.player.stats.targets = (this.player.stats.targets || 0) + 1;
     audio.play('hit_metal', { pos: c.mesh.position, vol: 0.9 });
     this.hud.hitmarker(false, true);
     c.noRay = true; c.noCollide = true;
@@ -130,10 +130,10 @@ export class Game {
     this.onTargetHit?.(c);
   }
 
-  explodeProp(c) {
+  explodeProp(c, byPlayer = true) {
     c.exploded = true; this.world.removeCollider(c);
     if (c.mesh) c.mesh.visible = false;
-    this.explode(c.mesh ? c.mesh.position.clone() : c.min.clone().add(c.max).multiplyScalar(0.5), 'frag', true, 1.3);
+    this.explode(c.mesh ? c.mesh.position.clone() : c.min.clone().add(c.max).multiplyScalar(0.5), 'frag', byPlayer, 1.3);
   }
 
   spawnGrenade(type, pos, vel, byPlayer) {
@@ -204,7 +204,7 @@ export class Game {
       if (d < R && this.world.lineOfSight(pos.clone().add(V(0, 0.4, 0)), e.pos.clone().add(V(0, 1, 0)))) {
         const dmg = 160 * (1 - d / R) + 20;
         if (e.hostage) { this.failMission('The hostage was killed.'); continue; }
-        if (e.takeDamage(dmg, e.pos.clone().sub(pos).normalize()) && byPlayer) { this.killCount++; P.stats.kills++; this.hud.killfeed('GRENADE KILL', 100); this.onEnemyKilled?.(e); }
+        if (e.takeDamage(dmg, e.pos.clone().sub(pos).normalize()) && byPlayer && !this.completed && !this.failed) { this.killCount++; P.stats.kills++; this.hud.killfeed('GRENADE KILL', 100); this.onEnemyKilled?.(e); }
       }
     }
     const pd = P.pos.distanceTo(pos);
@@ -214,7 +214,7 @@ export class Game {
     // chain reactions
     for (const c of [...this.world.dynamic]) if (c.explosive && !c.exploded) {
       const cp = c.min.clone().add(c.max).multiplyScalar(0.5);
-      if (cp.distanceTo(pos) < R * 0.7) { c.exploded = true; setTimeout(() => { c.exploded = false; this.explodeProp(c); }, 150 + Math.random() * 250); }
+      if (cp.distanceTo(pos) < R * 0.7) { c.exploded = true; setTimeout(() => { c.exploded = false; this.explodeProp(c, byPlayer); }, 150 + Math.random() * 250); }
     }
     this.alertEnemies(pos, 50);
     if (this.level.onExplosion) this.level.onExplosion(pos, type, byPlayer);
@@ -288,22 +288,22 @@ export class Game {
 
   failMission(reason) {
     if (this.failed || this.completed) return;
-    this.failed = true; audio.play('fail', { vol: 0.6, reverb: 0, bus: audio.music });
+    this.failed = true; this.finalStats = this.summary(); audio.play('fail', { vol: 0.6, reverb: 0, bus: audio.music });
     this.player.alive = false;
-    setTimeout(() => { this.state = 'over'; this.input.unlock(); this.ui.missionFailed(reason, this.summary()); }, 2200);
+    setTimeout(() => { this.state = 'over'; this.input.unlock(); this.ui.missionFailed(reason, this.finalStats); }, 2200);
   }
 
   completeMission() {
     if (this.completed || this.failed) return;
-    this.completed = true;
+    this.completed = true; this.finalStats = this.summary();
     audio.play('objective', { vol: 0.7, reverb: 0, bus: audio.music });
     this.hud.setObjective('MISSION COMPLETE', true);
-    setTimeout(() => { this.state = 'over'; this.input.unlock(); this.ui.missionComplete(this.summary()); }, 2500);
+    setTimeout(() => { this.state = 'over'; this.input.unlock(); this.ui.missionComplete(this.finalStats); }, 2500);
   }
 
   summary() {
     const s = this.player.stats;
-    return { time: this.levelTime, kills: s.kills, shots: s.shots, hits: s.hits, headshots: s.headshots, acc: s.shots ? Math.round(s.hits / s.shots * 100) : 0, level: this.levelDef, difficulty: this.diff.name };
+    return { time: this.levelTime, kills: s.kills, targets: s.targets || 0, shots: s.shots, hits: s.hits, headshots: s.headshots, acc: s.shots ? Math.min(100, Math.round(s.hits / s.shots * 100)) : 0, level: this.levelDef, difficulty: this.diff.name };
   }
 
   update(dt) {
