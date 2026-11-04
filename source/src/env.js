@@ -2,6 +2,7 @@
 import * as THREE from 'three';
 import { loadHDR, pbr, loadTexture, addGrime } from './assets.js';
 import { worldBoxGeometry } from './world.js';
+import { setAtmosphere } from './scenery.js';
 
 const V = (x = 0, y = 0, z = 0) => new THREE.Vector3(x, y, z);
 
@@ -65,9 +66,14 @@ export function setupEnvironment(G, o) {
   // viewmodel lighting mirrors the sun in camera space
   const vmSun = new THREE.DirectionalLight(o.sunColor ?? 0xfff1dc, (o.sunIntensity ?? 3) * 0.75);
   engine.vmScene.add(vmSun); engine.vmScene.add(vmSun.target); G.vmSun = vmSun;
+  // constant key/fill from the upper left so the weapon always reads (it lives in camera space)
+  const vmFill = new THREE.DirectionalLight(o.night ? 0x9db4ff : 0xffffff, o.night ? 0.35 : Math.max(0.6, (o.sunIntensity ?? 3) * 0.28));
+  vmFill.position.set(-1.2, 1.4, 0.6); engine.vmScene.add(vmFill);
   engine.vmScene.add(new THREE.HemisphereLight(o.skyColor ?? 0xbfd6ff, o.groundColor ?? 0x6b5a45, (o.hemi ?? 0.25) * 1.2));
   // fog
   scene.fog = new THREE.FogExp2(o.fogColor ?? 0xc9d6e2, o.fogDensity ?? 0.0045);
+  // height-falloff fog that glows toward the sun (aerial perspective)
+  setAtmosphere({ sunDir, sunColor: new THREE.Color(o.sunColor ?? 0xfff1dc).multiplyScalar(o.night ? 0.15 : 0.55), scatter: o.scatter ?? (o.night ? 0.4 : 0.9), heightFalloff: o.fogFalloff ?? 0.03, baseY: 0 });
   G.grade = o.grade || {};
 }
 

@@ -52,6 +52,69 @@ function raySeg(o, d, p, q) {
   return [pr.distanceTo(ps), sc];
 }
 
+// Rotate a bone about a world-space axis (keeps the rest of its pose)
+function twistWorld(b, axis, angle) {
+  if (!b || !angle) return;
+  _q.setFromAxisAngle(axis, angle);
+  b.getWorldQuaternion(_q2); b.parent.getWorldQuaternion(_q3);
+  b.quaternion.copy(_q3.invert().multiply(_q.multiply(_q2)));
+  b.updateMatrixWorld(true);
+}
+
+// Re-skin the soldier's tan armour plates into a 3-colour camouflage (per-mission palette) while
+// keeping all the baked shading detail of the original texture. Black under-suit becomes dark fabric.
+const CAMO = {
+  woodland: [0x3d4530, 0x5c6644, 0x2a2b22, 0x23261f],
+  desert:   [0xa08a62, 0xc4ad82, 0x7a6448, 0x4a4234],
+  urban:    [0x454a4d, 0x5d6266, 0x2b2e31, 0x222527],
+  night:    [0x2b2f33, 0x3a3f44, 0x1d2023, 0x191b1d],
+  civilian: [0x6e6253, 0x8b7d69, 0x4f463b, 0x3a3631],
+};
+export function camoFor(tint) {
+  if (typeof tint === 'string' && CAMO[tint]) return tint;
+  const c = new THREE.Color(tint ?? 0x6d7461), hsl = {}; c.getHSL(hsl);
+  if (hsl.l < 0.36) return 'night';
+  if (hsl.s < 0.08) return 'urban';
+  if (hsl.h > 0.08 && hsl.h < 0.16 && hsl.l > 0.5) return 'desert';
+  return 'woodland';
+}
+const camoMats = new Map();
+function camoMaterial(src, scheme, scale) {
+  const key = src.uuid + scheme;
+  if (camoMats.has(key)) return camoMats.get(key);
+  const m = src.clone();
+  m.color.set(0xffffff); m.roughness = 0.82; m.metalness = 0.0;
+  const P = CAMO[scheme].map(c => new THREE.Color(c));
+  m.onBeforeCompile = sh => {
+    Object.assign(sh.uniforms, { camoA: { value: P[0] }, camoB: { value: P[1] }, camoC: { value: P[2] }, suit: { value: P[3] }, camoScale: { value: scale } });
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vCamoP;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvCamoP = position;');
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', `#include <common>
+      varying vec3 vCamoP; uniform vec3 camoA, camoB, camoC, suit; uniform float camoScale;
+      float ch3(vec3 p){ p = fract(p * 0.3183099 + 0.1); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }
+      float cn3(vec3 x){ vec3 i = floor(x), f = fract(x); f = f * f * (3.0 - 2.0 * f);
+        return mix(mix(mix(ch3(i), ch3(i + vec3(1,0,0)), f.x), mix(ch3(i + vec3(0,1,0)), ch3(i + vec3(1,1,0)), f.x), f.y),
+                   mix(mix(ch3(i + vec3(0,0,1)), ch3(i + vec3(1,0,1)), f.x), mix(ch3(i + vec3(0,1,1)), ch3(i + vec3(1,1,1)), f.x), f.y), f.z); }
+      float cfbm(vec3 p){ return cn3(p) * 0.6 + cn3(p * 2.1 + 3.7) * 0.3 + cn3(p * 4.3 + 9.1) * 0.1; }`)
+      .replace('#include <map_fragment>', `#include <map_fragment>
+      {
+        vec3 t = diffuseColor.rgb;
+        float lum = dot(t, vec3(0.2126, 0.7152, 0.0722));
+        float plate = smoothstep(0.015, 0.06, t.r - t.b) * smoothstep(0.03, 0.09, lum);
+        vec3 q = vCamoP * camoScale;
+        float n1 = cfbm(q), n2 = cfbm(q * 1.6 + 11.0);
+        vec3 camo = mix(camoA, camoB, smoothstep(0.47, 0.53, n1));
+        camo = mix(camo, camoC, smoothstep(0.56, 0.6, n2));
+        float shade = clamp(lum / 0.36, 0.4, 1.1);
+        vec3 fabric = suit * clamp(lum / 0.04, 0.5, 1.6);
+        diffuseColor.rgb = mix(fabric, camo * shade, plate);
+      }`);
+  };
+  m.customProgramCacheKey = () => 'camo-' + scheme;
+  camoMats.set(key, m);
+  return m;
+}
+
 let template = null;
 export async function loadSoldier() {
   if (!template) template = await loadModel('Soldier');
@@ -83,12 +146,16 @@ export class Enemy {
   build(opts) {
     const src = template;
     const m = this.model = SkeletonUtils.clone(src.scene);
+    const scheme = this.hostage ? 'civilian' : camoFor(opts.tint);
     m.traverse(o => {
       if (o.isMesh) {
         o.castShadow = true; o.receiveShadow = true; o.frustumCulled = false;
-        o.material = o.material.clone();
-        if (opts.tint && !o.name.includes('visor')) o.material.color.set(opts.tint);
-        if (o.name.includes('visor')) { o.material.color.set(this.friendly ? 0x334455 : 0x111111); o.material.roughness = 0.15; o.material.metalness = 0.8; }
+        if (o.name.includes('visor')) { o.material = o.material.clone(); o.material.color.set(this.friendly ? 0x334455 : 0x0c0d0e); o.material.roughness = 0.12; o.material.metalness = 0.9; }
+        else {
+          o.geometry.computeBoundingBox?.();
+          const hgt = o.geometry.boundingBox ? o.geometry.boundingBox.max.y - o.geometry.boundingBox.min.y : 1.8;
+          o.material = camoMaterial(o.material, scheme, 9 / Math.max(0.5, hgt));
+        }
       }
     });
     this.G.scene.add(m);
@@ -116,8 +183,9 @@ export class Enemy {
       this.weights[k] += ((k === target ? 1 : 0) - this.weights[k]) * Math.min(1, dt * 6);
       this.actions[k].setEffectiveWeight(this.weights[k]);
     }
-    this.actions.Walk.timeScale = Math.max(0.6, speed / 1.6);
-    this.actions.Run.timeScale = Math.max(0.7, speed / 5.2);
+    const dir = this.backpedal ? -1 : 1;
+    this.actions.Walk.timeScale = dir * Math.max(0.6, speed / 1.5);
+    this.actions.Run.timeScale = dir * Math.max(0.7, speed / 5.0);
   }
 
   syncModel(dt) {
@@ -125,7 +193,7 @@ export class Enemy {
     m.position.copy(this.pos);
     let d = this.yaw - this.bodyYaw; d = Math.atan2(Math.sin(d), Math.cos(d));
     this.bodyYaw += d * Math.min(1, dt * 8);
-    m.rotation.set(0, this.bodyYaw + Math.PI, 0);
+    m.rotation.set(0, this.bodyYaw, 0);
     if (!this.alive) { this.updateDeath(dt); return; }
     // animation LOD: distant soldiers animate at ~10 Hz
     if (this.G.player.pos.distanceToSquared(this.pos) > 2000 && !this.hostage) {
@@ -139,6 +207,22 @@ export class Enemy {
     (this._lastSync ||= V()).copy(this.pos);
     this.mixer.update(dt);
     m.updateMatrixWorld(true);
+    // lower body turns toward the direction of travel; upper body keeps facing the aim direction
+    {
+      const hs = Math.hypot(this.vel.x, this.vel.z); let want = 0;
+      if (hs > 0.3) {
+        let d = Math.atan2(-this.vel.x, -this.vel.z) - this.bodyYaw; d = Math.atan2(Math.sin(d), Math.cos(d));
+        this.backpedal = Math.abs(d) > 1.9;
+        if (this.backpedal) d = Math.atan2(Math.sin(d + Math.PI), Math.cos(d + Math.PI));
+        want = THREE.MathUtils.clamp(d, -1.3, 1.3);
+      } else this.backpedal = false;
+      this.legYaw = (this.legYaw || 0) + (want - (this.legYaw || 0)) * Math.min(1, dt * 8);
+      if (Math.abs(this.legYaw) > 0.01 && this.b.Hips && this.b.Spine) {
+        twistWorld(this.b.Hips, UP, this.legYaw);
+        twistWorld(this.b.Spine, UP, -this.legYaw * 0.6);
+        twistWorld(this.b.Spine1, UP, -this.legYaw * 0.4);
+      }
+    }
     if (this.hostage) return;
     // ---- aim pose: twist spine toward aim, place rifle, IK both arms ----
     const aim = this.aimBlend;
@@ -223,7 +307,7 @@ export class Enemy {
     const m = this.model;
     const axis = V(-this.deathFall.z, 0, this.deathFall.x); if (axis.lengthSq() < 0.01) axis.set(1, 0, 0);
     m.quaternion.setFromAxisAngle(axis.normalize(), e * Math.PI / 2 * 0.98);
-    m.quaternion.multiply(_q.setFromEuler(new THREE.Euler(0, this.bodyYaw + Math.PI, 0)));
+    m.quaternion.multiply(_q.setFromEuler(new THREE.Euler(0, this.bodyYaw, 0)));
     m.position.copy(this.pos).add(V(0, 0.12 * Math.sin(t * Math.PI), 0)).addScaledVector(this.deathFall, e * 0.25);
     if (this.b.Spine1 && t < 1) { this.b.Spine1.rotation.x += dt * 0.6; }
     if (this.b.LeftUpLeg && t < 1) { this.b.LeftUpLeg.rotation.x -= dt * 1.2; this.b.LeftLeg = this.b.LeftLeg; }

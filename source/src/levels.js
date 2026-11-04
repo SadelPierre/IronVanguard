@@ -4,8 +4,15 @@ import { Water } from 'three/examples/jsm/objects/Water.js';
 import { pbr, loadTexture } from './assets.js';
 import { setupEnvironment, terrain, building, wallOpen, containerMat, fbm } from './env.js';
 import { audio } from './audio.js';
+import { ContainerYard, CONTAINER_COLORS, gantryCrane, quaySide, chainFence, roadPaint, addWetness, cargoShip, vehicleWreck, scatter } from './scenery.js';
 
 const V = (x = 0, y = 0, z = 0) => new THREE.Vector3(x, y, z);
+
+// Deterministic level layout: every load of a mission builds exactly the same map,
+// so checkpoint positions always land in the same free space.
+let _seed = 1;
+const rnd = () => { _seed |= 0; _seed = (_seed + 0x6D2B79F5) | 0; let t = Math.imul(_seed ^ (_seed >>> 15), 1 | _seed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+export function seedLevel(id) { let h = 2166136261; for (const c of id) h = Math.imul(h ^ c.charCodeAt(0), 16777619); _seed = h >>> 0; }
 
 async function mats() {
   const [plaster, beige, brick, concrete, patterned, floor, asphalt, rust, corr, wood, plate, rock, sandstone] = await Promise.all([
@@ -32,7 +39,7 @@ function sandbagWall(W, M, x, z, len, horiz = true, h = 0.9) {
   for (let r = 0; r < rows; r++) for (let i = 0; i <= per; i++) {
     const off = (i + (r % 2) * 0.5) * 0.6 - len / 2; if (off > len / 2) continue;
     const p = horiz ? V(x + off, 0.12 + r * 0.2, z) : V(x, 0.12 + r * 0.2, z + off);
-    q.setFromEuler(new THREE.Euler(0, (horiz ? 0 : Math.PI / 2) + (Math.random() - 0.5) * 0.15, 0));
+    q.setFromEuler(new THREE.Euler(0, (horiz ? 0 : Math.PI / 2) + (rnd() - 0.5) * 0.15, 0));
     m.compose(p, q, s); inst.setMatrixAt(k++, m);
   }
   inst.count = k; inst.castShadow = inst.receiveShadow = true; W.scene.add(inst);
@@ -42,16 +49,20 @@ function sandbagWall(W, M, x, z, len, horiz = true, h = 0.9) {
 
 // burnt-out vehicle shell usable as hard cover
 function wreck(G, M, x, z, rotY = 0, truck = false) {
-  const W = G.world, car = new THREE.Group(), cm = M.rust;
-  const L = truck ? 6 : 4.3, Wd = truck ? 2.3 : 1.8;
-  const b = new THREE.Mesh(new THREE.BoxGeometry(Wd, 0.75, L), cm); b.position.y = 0.62; car.add(b);
-  const t = new THREE.Mesh(new THREE.BoxGeometry(Wd * 0.9, truck ? 1.1 : 0.6, truck ? 1.8 : 2.2), cm); t.position.set(0, truck ? 1.55 : 1.25, truck ? -L / 2 + 1.1 : -0.2); car.add(t);
-  for (const [dx, dz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) { const w = new THREE.Mesh(new THREE.CylinderGeometry(0.36, 0.36, 0.25, 12), M.darkMetal); w.rotation.z = Math.PI / 2; w.position.set(dx * (Wd / 2 - 0.05), 0.3, dz * (L / 2 - 0.8)); car.add(w); }
-  car.position.set(x, 0, z); car.rotation.y = rotY;
-  car.traverse(o => { if (o.isMesh) o.castShadow = o.receiveShadow = true; }); G.scene.add(car);
-  car.updateMatrixWorld(true); const bb = new THREE.Box3().setFromObject(b); W.addCollider(bb.min, bb.max, 'metal');
-  const bt = new THREE.Box3().setFromObject(t); W.addCollider(bt.min, bt.max, 'metal');
-  return car;
+  return vehicleWreck(G, M, x, z, rotY, truck);
+}
+
+// random scatter positions that avoid existing geometry and keep-out circles
+function spots(G, n, { x0, x1, z0, z1, keep = [], clear = 1.2, scale = [1, 1] }) {
+  const out = []; let guard = 0;
+  while (out.length < n && guard++ < n * 40) {
+    const x = x0 + rnd() * (x1 - x0), z = z0 + rnd() * (z1 - z0);
+    if (keep.some(([kx, kz, r]) => (x - kx) ** 2 + (z - kz) ** 2 < r * r)) continue;
+    if (G.world.overlaps(V(x, 0, z), clear, 3)) continue;
+    if (out.some(o => (o.x - x) ** 2 + (o.z - z) ** 2 < clear * clear * 4)) continue;
+    out.push({ x, z, rotY: rnd() * 6.283, scale: scale[0] + rnd() * (scale[1] - scale[0]) });
+  }
+  return out;
 }
 
 function laptop(G, x, y, z, rotY = 0) {
@@ -106,8 +117,8 @@ async function desertVillage(G, M) {
   await terrain(G, { tex: 'dry_ground_01', texSize: 5, flat: 85, hills: 32, mat: 'sand', seed: 3 });
   // perimeter berm / rocks outside bounds
   for (let i = 0; i < 26; i++) {
-    const a = i / 26 * Math.PI * 2; const r = 95 + Math.random() * 15;
-    await W.prop('boulder_01', Math.cos(a) * r * 0.75, Math.sin(a) * r * 0.85, { rotY: Math.random() * 6, scale: 3 + Math.random() * 4, collide: false });
+    const a = i / 26 * Math.PI * 2; const r = 95 + rnd() * 15;
+    await W.prop('boulder_01', Math.cos(a) * r * 0.75, Math.sin(a) * r * 0.85, { rotY: rnd() * 6, scale: 3 + rnd() * 4, collide: false });
   }
   // village outer wall (z=30) with gate & breaches
   const wm = M.plaster;
@@ -149,11 +160,11 @@ async function desertVillage(G, M) {
     P('ammo_box', 8, -30.3, { y: 0.3 }), P('medical_box', -5, -45),
   ]);
   for (let i = 0; i < 8; i++) {
-    const x = (Math.random() - 0.5) * 110, z = 40 + Math.random() * 25;
+    const x = (rnd() - 0.5) * 110, z = 40 + rnd() * 25;
     if (Math.abs(x) < 30) continue;
-    await P('boulder_01', x, z, { rotY: Math.random() * 6, scale: 0.8 + Math.random() * 0.9, mat: 'concrete' });
+    await P('boulder_01', x, z, { rotY: rnd() * 6, scale: 0.8 + rnd() * 0.9, mat: 'concrete' });
   }
-  for (let i = 0; i < 40; i++) await P('rock_07', (Math.random() - 0.5) * 120, (Math.random() - 0.5) * 150, { rotY: Math.random() * 6, scale: 1 + Math.random() * 2, collide: false, cast: false });
+  for (let i = 0; i < 40; i++) await P('rock_07', (rnd() - 0.5) * 120, (rnd() - 0.5) * 150, { rotY: rnd() * 6, scale: 1 + rnd() * 2, collide: false, cast: false });
   sandbagWall(W, M, -3, 36, 4); sandbagWall(W, M, 4, 36, 3);
   // approach cover (spawn is at z=62): leapfrog positions all the way to the wall
   wreck(G, M, -5, 55, 0.35, true); wreck(G, M, 9, 49, -0.5); wreck(G, M, -14, 43, 1.2); wreck(G, M, 17, 40, 0.2, true);
@@ -161,6 +172,20 @@ async function desertVillage(G, M) {
   await Promise.all([[-18, 58], [13, 60], [-28, 46], [27, 44], [6, 40]].map(([x, z], i) => W.prop('boulder_01', x, z, { rotY: i * 1.7, scale: 1.6, mat: 'concrete' })));
   sandbagWall(W, M, -6, -20, 3); sandbagWall(W, M, 6, -20, 3);
   sandbagWall(W, M, 0, -60, 6);
+  // natural desert dressing: CC0 Namaqualand boulders, quiver trees, rooibos scrub and dead branches (instanced)
+  const keep = [[0, 62, 7], [0, 26, 6], [0, -74, 9], [3, -44.5, 4], [-6, 33.5, 3], [-31, 0, 3], [20, -26, 3]];
+  const out = { keep, clear: 2.2 };
+  await scatter(G, 'namaqualand_boulder_04', [
+    ...spots(G, 6, { ...out, x0: -60, x1: 60, z0: 36, z1: 66, scale: [0.45, 0.8] }),
+    ...spots(G, 10, { ...out, x0: -66, x1: -46, z0: -80, z1: 64, scale: [0.6, 1.3] }), ...spots(G, 10, { ...out, x0: 46, x1: 66, z0: -80, z1: 64, scale: [0.6, 1.3] }),
+    ...spots(G, 6, { ...out, x0: -40, x1: 40, z0: -82, z1: -58, scale: [0.5, 1.1] })], { collide: true, colRadius: 'auto', colHeight: 'auto', sink: 0.12 });
+  await scatter(G, 'namaqualand_boulder_02', [
+    ...spots(G, 8, { ...out, x0: -60, x1: 60, z0: 34, z1: 64, scale: [0.9, 1.3] }), ...spots(G, 8, { ...out, x0: -66, x1: 66, z0: -82, z1: -22, scale: [0.9, 1.4] })],
+    { collide: true, colRadius: 'auto', colHeight: 'auto', sink: 0.05 });
+  await scatter(G, 'quiver_tree_02', [...spots(G, 5, { ...out, x0: -66, x1: -44, z0: -70, z1: 60, scale: [2.2, 3.4] }), ...spots(G, 5, { ...out, x0: 44, x1: 66, z0: -70, z1: 60, scale: [2.2, 3.4] }), ...spots(G, 3, { ...out, x0: -40, x1: 40, z0: 40, z1: 66, scale: [2.4, 3.0] })],
+    { collide: true, colRadius: 0.1, colHeight: 1.4 });
+  await scatter(G, 'wild_rooibos_bush', spots(G, 34, { keep, clear: 1.0, x0: -66, x1: 66, z0: -82, z1: 66, scale: [0.7, 1.4] }), { cast: true });
+  await scatter(G, 'dry_branches_medium_01', spots(G, 22, { keep, clear: 0.8, x0: -66, x1: 66, z0: -82, z1: 66, scale: [0.8, 1.5] }), { cast: false });
   G._supplies = [V(-6, 0, 33.5), V(-31, 0, 0), V(20, 0, -26)];
   table(G, M, 3, -44.5, 1.6, 0.8);
   laptop(G, 3, 0.79, -44.5, 0.2);
@@ -180,7 +205,7 @@ export const LEVELS = [
     async build(G, prog) {
       setupEnvironment(G, { hdri: 'kloofendal_48d_partly_cloudy_puresky', sunDir: V(-0.5, 0.9, 0.35), sunIntensity: 3.2, sunColor: 0xfff0dc, envIntensity: 0.9, fogColor: 0xbcd0e6, fogDensity: 0.0032, exposure: 1.0, skyTop: 0x2a5aa0, skyHorizon: 0xbfd2e4, clouds: 0.5, hemi: 0.2, groundColor: 0x5a6a40, grade: { saturation: 1.05 } });
       G.envExposure = 1.0;
-      const M = await mats(); const W = G.world; G.level.tint = 0x6d7461;
+      const M = await mats(); const W = G.world; G.level.tint = 'woodland';
       W.bounds = { minX: -46, maxX: 46, minZ: -70, maxZ: 46 };
       await terrain(G, { tex: 'sparse_grass', texSize: 4, flat: 80, hills: 30, mat: 'grass', seed: 7 });
       prog(0.45, 'Building range');
@@ -207,7 +232,7 @@ export const LEVELS = [
       building(W, sh.x, sh.z, 18, 14, 3.2, M.concrete, { roof: false, floorMat: M.floor, doors: { s: [0.5], n: [0.8] }, windows: { e: [0.3], w: [0.6] } });
       wallOpen(W, -9, -45, 3, -45, 3.2, 0.25, M.concrete, [{ at: 0.35, w: 1.3, y0: 0, y1: 2.3 }]);
       wallOpen(W, 3, -52, 3, -38, 3.2, 0.25, M.concrete, [{ at: 0.25, w: 1.3, y0: 0, y1: 2.3 }, { at: 0.75, w: 1.3, y0: 0, y1: 2.3 }]);
-      for (const [x, z, y] of [[-6, -41, 0], [-2, -40, 0], [6, -41, 0], [7, -49, 0], [-5, -50, 0], [-1, -49.5, 0]]) popTarget(G, M, x, z, Math.PI * (Math.random() < 0.5 ? 0 : 0), { lane: 3, color: 0x8c5a4a });
+      for (const [x, z, y] of [[-6, -41, 0], [-2, -40, 0], [6, -41, 0], [7, -49, 0], [-5, -50, 0], [-1, -49.5, 0]]) popTarget(G, M, x, z, Math.PI * (rnd() < 0.5 ? 0 : 0), { lane: 3, color: 0x8c5a4a });
       await Promise.all([W.prop('wooden_crate_01', -7, -48, { mat: 'wood' }), W.prop('Barrel_01', 5, -43), W.prop('cardboard_box_01', 1, -50)]);
       // finish line
       const finish = V(0, 0, -63);
@@ -247,7 +272,7 @@ export const LEVELS = [
     ambience: [['wind', 0.45]],
     async build(G, prog) {
       setupEnvironment(G, { hdri: 'qwantani_noon_puresky', sunDir: V(0.6, 0.78, 0.5), sunIntensity: 4.0, sunColor: 0xfff2dc, envIntensity: 1.0, fogColor: 0xd9cdb5, fogDensity: 0.005, exposure: 0.85, skyTop: 0x2d5c9c, skyHorizon: 0xe2d6c0, skyGround: 0xb39a78, clouds: 0.22, hemi: 0.25, groundColor: 0x9a7f5c, grade: { tint: 0xfff3e2, saturation: 1.0, contrast: 1.14 } });
-      G.envExposure = 0.85; G.level.tint = 0xb8a685;
+      G.envExposure = 0.85; G.level.tint = 'desert';
       const M = await mats();
       prog(0.4, 'Building village');
       await desertVillage(G, M);
@@ -289,10 +314,11 @@ export const LEVELS = [
     ambience: [['waves', 0.35], ['wind', 0.2]],
     async build(G, prog) {
       setupEnvironment(G, { hdri: 'belfast_sunset_puresky', sunDir: V(-1, 0.16, -0.35), sunIntensity: 3.6, sunColor: 0xffb070, envIntensity: 0.9, fogColor: 0xa08878, fogDensity: 0.0065, exposure: 1.0, skyTop: 0x3b4f78, skyHorizon: 0xf0a070, skyGround: 0x40362f, clouds: 0.55, cloudColor: 0xffd0b0, skyBright: 1.2, hemi: 0.2, skyColor: 0xffc49a, groundColor: 0x40362f, shadowExtent: 60, grade: { tint: 0xfff0e0, saturation: 1.05, contrast: 1.1 } });
-      G.envExposure = 1.0; G.level.tint = 0x6f7568;
+      G.envExposure = 1.0; G.level.tint = 'urban';
       const M = await mats(); const W = G.world;
       W.bounds = { minX: -72, maxX: 72, minZ: -78, maxZ: 70 };
       const ter = await terrain(G, { tex: 'asphalt_02', texSize: 6, flat: 85, hills: 18, mat: 'concrete', seed: 11 });
+      addWetness(ter.material, { amount: 0.5, scale: 0.06, dampness: 0.3 });
       // carve the water: drop terrain north of the quay
       { const p = ter.geometry.attributes.position; for (let i = 0; i < p.count; i++) if (p.getZ(i) < -56) p.setY(i, -8); p.needsUpdate = true; ter.geometry.computeVertexNormals(); }
       prog(0.4, 'Flooding the harbour');
@@ -315,39 +341,32 @@ export const LEVELS = [
       const cabin = new THREE.Mesh(new THREE.BoxGeometry(2.4, 1.6, 2.6), new THREE.MeshStandardMaterial({ color: 0xb8bdb5, roughness: 0.5 })); cabin.position.set(0, 0.6, 1.2); boat.add(cabin);
       boat.position.set(47, 0, -70); boat.traverse(o => { if (o.isMesh) { o.castShadow = o.receiveShadow = true; } }); G.scene.add(boat); G.boat = boat;
       prog(0.5, 'Stacking containers');
-      // containers
-      const colors = [0x8c2f24, 0x2a4e7a, 0x3b6b3a, 0x9a6b23, 0x6b6e70, 0x7a3550, 0x2e6a6b];
-      const cmats = await Promise.all(colors.map(c => containerMat(c)));
-      const cont = (x, z, rot = false, stack = 1, ci) => {
-        for (let s = 0; s < stack; s++) {
-          const m = cmats[ci ?? ((Math.random() * cmats.length) | 0)];
-          const w = rot ? 2.44 : 6.06, d = rot ? 6.06 : 2.44;
-          W.box(x, s * 2.6, z, w, 2.59, d, m, { mat: 'metal', texSize: 2.6 });
-        }
-      };
-      const rows = [];
+      // containers (instanced ISO 20ft boxes with corrugated walls, doors and weathering)
+      const yard = new ContainerYard(G);
+      const cont = (x, z, rot = false, stack = 1, ci) => { for (let k = 0; k < stack; k++) yard.add(x, z, rot ? 'z' : 'x', k, ci !== undefined ? CONTAINER_COLORS[ci] : null, rnd() < 0.5); };
       for (let r = 0; r < 5; r++) for (let c = 0; c < 6; c++) {
         const x = -44 + c * 13 + (r % 2) * 3, z = -38 + r * 14;
         if (r === 2 && c === 1) continue; // Bravo clearing
-        const st = Math.random() < 0.45 ? 2 : 1;
-        cont(x, z, false, st); if (Math.random() < 0.7) cont(x, z + 2.5, false, Math.random() < 0.4 ? 2 : 1);
-        if (Math.random() < 0.3) cont(x + 7.5, z + 1, true, 1);
+        const st = rnd() < 0.45 ? 2 : 1;
+        cont(x, z, false, st); if (rnd() < 0.7) cont(x, z + 2.5, false, rnd() < 0.4 ? 2 : 1);
+        if (rnd() < 0.3) cont(x + 7.5, z + 1, true, 1);
       }
       // warehouses
       building(W, 50, 30, 24, 16, 7, M.corr, { roofMat: M.rust, floorMat: M.floor, doors: { w: [0.5], s: [0.3, 0.7], n: [0.5] }, windows: {}, parapet: 0, thick: 0.3 });
       W.box(50, 0, 30, 24, 0.01, 0.01, M.corr, { collide: false });
       building(W, 52, -22, 20, 14, 6.5, M.corr, { roofMat: M.rust, floorMat: M.floor, doors: { w: [0.4], n: [0.6] }, windows: {}, parapet: 0 });
       building(W, -52, 40, 14, 10, 4, M.brick, { roofMat: M.concrete, floorMat: M.floor, doors: { e: [0.5] }, windows: { s: [0.3, 0.7], n: [0.5] } });
-      // cranes
-      for (const cx of [-22, 8]) {
-        for (const [dx, dz] of [[-6, -1], [6, -1], [-6, -10], [6, -10]]) W.box(cx + dx, 0, -50 + dz, 1, 26, 1, M.yellow, { mat: 'metal' });
-        W.box(cx, 26, -55, 14, 2, 1.4, M.yellow, { collide: false }); W.box(cx, 26, -45, 14, 2, 1.4, M.yellow, { collide: false });
-        W.box(cx, 28, -50, 3, 2, 60, M.yellow, { collide: false });
-        W.box(cx, 24, -62, 2.5, 3, 3, M.darkMetal, { collide: false });
-      }
+      // ship-to-shore gantry cranes, quayside, perimeter fence, road markings
+      for (const cx of [-22, 8]) gantryCrane(G, M, cx, -51, -60);
+      await quaySide(G, M, { edgeZ: -56, x0: -72, x1: 72, skip: [[36.5, 43.5]], railZ: [-51, -60] });
+      chainFence(G, [[-71.6, -55, -71.6, 69.6], [71.6, -55, 71.6, 69.6], [-71.6, 69.6, -12, 69.6], [-4, 69.6, 71.6, 69.6]]);
+      roadPaint(G, [[-70, -45.5, 70, -45.5, 0.2], [-70, -55.2, 35, -55.2, 0.12], [45, -55.2, 70, -55.2, 0.12],
+        ...[-29.7, -15.7, -1.7, 12.2, 26].map(z => [-62, z, 50, z, 0.15, true])]);
+      roadPaint(G, [...[0, 1, 2, 3, 4, 5].map(k => [56 + k * 2.6, 44, 56 + k * 2.6, 50, 0.1]), [56, 50, 69, 50, 0.1]], 0xd8d8d0);
+      cargoShip(G, -30, -235, 0.06); cargoShip(G, 210, -330, -0.25, 150);
       // lamps with lights
       for (const [x, z] of [[-60, 20], [-30, 52], [10, 52], [30, -48], [62, 5], [-60, -45]]) {
-        await W.prop('street_lamp_01', x, z, { rotY: Math.random() * 6 });
+        await W.prop('street_lamp_01', x, z, { rotY: rnd() * 6 });
         const l = new THREE.PointLight(0xffc27a, 25, 22, 2); l.position.set(x, 3.6, z); G.scene.add(l);
       }
       // caches
@@ -365,6 +384,22 @@ export const LEVELS = [
       wreck(G, M, -56, 58, 0.8, true); wreck(G, M, -40, 50, -0.3);
       sandbagWall(W, M, -50, 62, 3.5); sandbagWall(W, M, -58, 52, 3); sandbagWall(W, M, -36, 44, 3.5, false);
       await Promise.all([W.prop('wooden_crate_01', -52, 46, { mat: 'wood' }), W.prop('wooden_crate_01', -51.3, 46.6, { rotY: 0.5, mat: 'wood' }), W.prop('old_military_crate', -44, 46, { mat: 'wood', rotY: 1.2 })]);
+      await yard.finish();
+      // dockside dressing (CC0 Poly Haven props)
+      const PP = (n, x, z, o = {}) => W.prop(n, x, z, o);
+      await Promise.all([
+        PP('rollershutter_door', 62.2, 26, { rotY: Math.PI / 2, collide: false }), PP('rollershutter_door', 62.2, 34, { rotY: Math.PI / 2, collide: false }),
+        PP('rollershutter_door', 62.2, -25, { rotY: Math.PI / 2, collide: false }), PP('rollershutter_door', 46, -29.2, { rotY: Math.PI, collide: false }),
+        PP('exterior_aircon_unit', 42, -16, { rotY: -Math.PI / 2, y: 2.2, collide: false }), PP('exterior_aircon_unit', 57, 38.2, { y: 2.6, collide: false }),
+        PP('security_light', 38.2, 31.6, { y: 3.0, rotY: -Math.PI / 2, collide: false }), PP('security_light', 50, 21.8, { y: 3.0, rotY: Math.PI, collide: false }), PP('security_light', 52, -14.8, { y: 3.0, collide: false }),
+        PP('metal_trash_can', -45, 31, { rotY: 0.4 }), PP('metal_trash_can', 20, 48.5, { rotY: 2.1 }), PP('metal_trash_can', 36.5, 14, { rotY: -0.6 }),
+        PP('concrete_road_barrier_02', -8, 64, { rotY: 0.05 }), PP('concrete_road_barrier_02', -6.2, 64.4, { rotY: -0.1 }), PP('concrete_road_barrier_02', 30, -44, { rotY: 0.2 }), PP('concrete_road_barrier_02', 31.8, -44.3, { rotY: 0.05 }),
+        PP('utility_box_02', -15, -46.5), PP('utility_box_02', 15, -46.5, { rotY: 0.1 }), PP('fire_hydrant', 37, 18, { collide: false }), PP('fire_hydrant', -50, 33.5, { collide: false }),
+        PP('wooden_military_crate', 53.5, 31.5, { mat: 'wood', rotY: 0.3 }), PP('wooden_military_crate', -32.5, -7.5, { mat: 'wood', rotY: 1.2 }), PP('wooden_military_crate', -29.4, -10.4, { mat: 'wood', y: 0, rotY: 2.7 }),
+        PP('plastic_crate_03', 24, 46, { rotY: 0.2 }), PP('plastic_crate_03', 24.1, 46, { y: 0.27, rotY: 0.35 }), PP('plastic_crate_03', 24.6, 46.5, { rotY: 1.4 }),
+        PP('lifebuoy', 35.4, -56.6, { collide: false }), PP('lifebuoy', -20, -56.4, { collide: false }), PP('water_manhole_cover', -5, 40, { collide: false, cast: false }), PP('water_manhole_cover', 22, -10.5, { collide: false, cast: false }),
+        PP('ocean_buoy', 20, -97, { y: -2.2, collide: false }), PP('ocean_buoy', -45, -125, { y: -2.2, collide: false, rotY: 1 }), PP('lateral_sea_marker', 70, -112, { y: -2.6, collide: false }),
+      ]);
       G._supplies = [V(-58, 0, 58), V(30, 0, 40), V(-5, 0, -25), V(50, 0, -12)];
       prog(0.7, 'Deploying hostiles');
       const z = 'yard';
@@ -412,10 +447,11 @@ export const LEVELS = [
     ambience: [['crickets', 0.25], ['wind', 0.15]],
     async build(G, prog) {
       setupEnvironment(G, { hdri: 'qwantani_night_puresky', night: true, sunDir: V(0.3, 0.7, -0.6), sunIntensity: 0.45, sunColor: 0x9db4ff, envIntensity: 0.45, vmEnv: 1.6, fogColor: 0x0b0f18, fogDensity: 0.02, exposure: 1.35, hemi: 0.06, skyColor: 0x3b4a70, groundColor: 0x111111, shadowExtent: 45, grade: { tint: 0xd8e2ff, saturation: 0.8, contrast: 1.12, vignette: 0.5 } });
-      G.envExposure = 1.35; G.level.tint = 0x555b63;
+      G.envExposure = 1.35; G.level.tint = 'night';
       const M = await mats(); const W = G.world;
       W.bounds = { minX: -40, maxX: 40, minZ: -84, maxZ: 40 };
-      await terrain(G, { tex: 'asphalt_02', texSize: 5, flat: 70, hills: 15, mat: 'concrete', seed: 5 });
+      const nterr = await terrain(G, { tex: 'asphalt_02', texSize: 5, flat: 70, hills: 15, mat: 'concrete', seed: 5 });
+      addWetness(nterr.material, { amount: 0.75, scale: 0.09, dampness: 0.55 });
       prog(0.4, 'Building Old Town');
       // sidewalks
       W.box(-9, 0, -22, 6, 0.15, 124, M.floor, { texSize: 2, cast: false }); W.box(9, 0, -22, 6, 0.15, 124, M.floor, { texSize: 2, cast: false });
@@ -429,7 +465,7 @@ export const LEVELS = [
           building(W, cx, cz, 18, d, h, mat, { roofMat: M.concrete, floorMat: M.floor, doors: { [side < 0 ? 'e' : 'w']: [0.5] }, windows: { [side < 0 ? 'e' : 'w']: [0.2, 0.8] }, parapet: 0.8 });
           // upper floor windows (decorative glow)
           for (let k = 0; k < 3; k++) {
-            const wz = z0 + d * (0.2 + k * 0.3), lit = Math.random() < 0.35;
+            const wz = z0 + d * (0.2 + k * 0.3), lit = rnd() < 0.35;
             const win = new THREE.Mesh(new THREE.PlaneGeometry(1.1, 1.3), new THREE.MeshStandardMaterial({ color: 0x111111, emissive: lit ? 0xffb066 : 0x0a0d12, emissiveIntensity: lit ? 2.2 : 1, roughness: 0.2, metalness: 0.5 }));
             win.position.set(cx - side * 9.02 * 1, 4.5, wz); win.rotation.y = side < 0 ? Math.PI / 2 : -Math.PI / 2; G.scene.add(win);
           }
@@ -450,13 +486,22 @@ export const LEVELS = [
         W.prop('old_tyre', -6, 2, { y: 0.3, rotY: 1.2 }), W.prop('medical_box', 3, -75), W.prop('old_military_crate', -4, -76, { mat: 'wood' }),
       ]);
       // burnt-out car shells
-      for (const [x, z, r] of [[3.5, 8, 0.2], [-3.8, -26, 2.9]]) {
-        const car = new THREE.Group(); const cm = M.rust;
-        const b = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.7, 4.3), cm); b.position.y = 0.6; car.add(b);
-        const t = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.6, 2.2), cm); t.position.set(0, 1.2, -0.2); car.add(t);
-        car.position.set(x, 0, z); car.rotation.y = r; car.traverse(o => { if (o.isMesh) o.castShadow = o.receiveShadow = true; }); G.scene.add(car);
-        car.updateMatrixWorld(true); const bb = new THREE.Box3().setFromObject(car); W.addCollider(bb.min, bb.max, 'metal');
+      for (const [x, z, r] of [[3.5, 8, 0.2], [-3.8, -26, 2.9]]) vehicleWreck(G, M, x, z, r);
+      // street dressing on the facades and sidewalks (CC0 Poly Haven)
+      const street = [];
+      for (const side of [-1, 1]) for (const [z0, z1] of [[-80, -58], [-56, -36], [-24, -6], [-2, 18], [22, 38]]) {
+        const fx = side * 12.84, ry = side < 0 ? Math.PI / 2 : -Math.PI / 2, d = z1 - z0;
+        street.push(W.prop('rollershutter_door', fx, z0 + d * 0.33, { rotY: ry, y: 0.15, collide: false }));
+        street.push(W.prop('exterior_aircon_unit', fx, z0 + d * 0.66, { rotY: ry, y: 3.3, collide: false }));
+        street.push(W.prop('security_light', fx - side * 0.1, (z0 + z1) / 2, { rotY: ry, y: 2.75, collide: false }));
+        if ((z0 + 80) % 3 === 0) street.push(W.prop('metal_trash_can', side * 11.4, z0 + d * 0.15, { rotY: ry, y: 0.15 }));
+        street.push(W.prop('fire_hydrant', side * 6.6, z0 + d * 0.8, { y: 0.15, rotY: ry, collide: false }));
       }
+      street.push(W.prop('utility_box_02', 12.2, -44, { rotY: -Math.PI / 2, y: 0.15 }), W.prop('utility_box_02', -12.2, 20, { rotY: Math.PI / 2, y: 0.15 }),
+        W.prop('water_manhole_cover', 1.5, 0, { collide: false, cast: false }), W.prop('water_manhole_cover', -1.2, -48, { collide: false, cast: false }),
+        W.prop('concrete_road_barrier_02', -1, -66, { rotY: 0.1 }), W.prop('plastic_crate_03', 8.5, -20, { y: 0.15 }), W.prop('plastic_crate_03', 8.6, -20, { y: 0.42, rotY: 0.4 }));
+      await Promise.all(street);
+      roadPaint(G, [[0, 38, 0, -80, 0.12, true]], 0xd8d8d0);
       // spawn-side cover (spawn at 0,32)
       await Promise.all([W.prop('concrete_road_barrier', -2.5, 26, { rotY: 0.15 }), W.prop('concrete_road_barrier', 3, 22, { rotY: -0.2 }), W.prop('concrete_road_barrier', -3, 4, { rotY: 0.3 }), W.prop('concrete_road_barrier', 2.5, -22, { rotY: -0.1 }), W.prop('wooden_crate_01', 4, 27, { mat: 'wood' })]);
       sandbagWall(W, M, 0, -3, 3); sandbagWall(W, M, -1, -44, 3.5);
@@ -508,7 +553,7 @@ export const LEVELS = [
     ambience: [['wind', 0.35]],
     async build(G, prog) {
       setupEnvironment(G, { hdri: 'belfast_sunset_puresky', sunDir: V(0.9, 0.14, -0.4), sunIntensity: 3.4, sunColor: 0xff9a55, envIntensity: 0.8, fogColor: 0xa47f68, fogDensity: 0.006, exposure: 1.05, skyTop: 0x34466e, skyHorizon: 0xf29a60, skyGround: 0x5a4030, clouds: 0.4, cloudColor: 0xffc8a0, skyBright: 1.2, hemi: 0.2, skyColor: 0xffb48a, groundColor: 0x5a4030, grade: { tint: 0xffeedd, saturation: 1.05, contrast: 1.1 } });
-      G.envExposure = 1.05; G.level.tint = 0xb8a685;
+      G.envExposure = 1.05; G.level.tint = 'desert';
       const M = await mats();
       prog(0.4, 'Building village');
       await desertVillage(G, M);

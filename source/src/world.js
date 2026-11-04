@@ -190,6 +190,39 @@ export class World {
     return { groundY, ceiling };
   }
 
+  // Is an upright actor (radius r, height h) at pos overlapping solid geometry?
+  overlaps(pos, r = 0.34, h = 1.75) {
+    for (const c of this.colliders) {
+      if (c.noCollide) continue;
+      if (c.max.y <= pos.y + 0.46 || c.min.y >= pos.y + h) continue;
+      const cx = Math.max(c.min.x, Math.min(pos.x, c.max.x)), cz = Math.max(c.min.z, Math.min(pos.z, c.max.z));
+      if ((pos.x - cx) ** 2 + (pos.z - cz) ** 2 < r * r * 0.8) return c;
+    }
+    return null;
+  }
+
+  // Nearest standable spot to `pos` (searches the nav grid outward). Returns a new Vector3.
+  findSafeSpot(pos, fallback = null) {
+    const B = this.bounds;
+    const inBounds = pos.x > B.minX + 0.5 && pos.x < B.maxX - 0.5 && pos.z > B.minZ + 0.5 && pos.z < B.maxZ - 0.5;
+    if (inBounds && pos.y > -0.5 && pos.y < 30 && !this.overlaps(pos)) return pos.clone();
+    if (this.nav) {
+      const [cx, cz] = this.navCell(pos);
+      for (let r = 0; r < 60; r++) {
+        let best = null, bd = Infinity;
+        for (let dz = -r; dz <= r; dz++) for (let dx = -r; dx <= r; dx++) {
+          if (Math.max(Math.abs(dx), Math.abs(dz)) !== r || !this.navFree(cx + dx, cz + dz)) continue;
+          const p = this.cellPos(cx + dx, cz + dz);
+          if (this.overlaps(p)) continue;
+          const d = (p.x - pos.x) ** 2 + (p.z - pos.z) ** 2;
+          if (d < bd) { bd = d; best = p; }
+        }
+        if (best) return best;
+      }
+    }
+    return fallback ? fallback.clone() : pos.clone();
+  }
+
   // ---------- Navigation grid ----------
   buildNav(cell = 0.8) {
     const B = this.bounds;

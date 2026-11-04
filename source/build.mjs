@@ -20,7 +20,7 @@ for (const [g, files] of Object.entries(groups)) {
   let part = 0, cur = [], size = 0;
   const flush = () => {
     if (!cur.length) return;
-    const name = `assets/${g}${part++}.js`;
+    const name = `assets/${g}${part++}.v3.js`;
     fs.writeFileSync(path.join(DIST, name), 'window.__A=window.__A||{};\n' + cur.join('\n'));
     packs.push(name); cur = []; size = 0;
   };
@@ -35,12 +35,12 @@ for (const [g, files] of Object.entries(groups)) {
 
 await esbuild.build({
   entryPoints: [entry], bundle: true, minify: true, format: 'iife', target: 'es2020',
-  outfile: DIST + '/game.v2.js', legalComments: 'none', logLevel: 'warning',
+  outfile: DIST + '/game.v3.js', legalComments: 'none', logLevel: 'warning',
 });
 
 const html = fs.readFileSync('src/index.html', 'utf8')
   .replace('<!--ASSETS-->', packs.map(p => `<script src="${p}"></script>`).join('\n'))
-  .replace('<!--GAME-->', '<script src="game.v2.js"></script>');
+  .replace('<!--GAME-->', '<script src="game.v3.js"></script>');
 fs.writeFileSync(DIST + '/index.html', html);
-let total = 0; for (const p of [...packs, 'game.v2.js', 'index.html']) total += fs.statSync(path.join(DIST, p)).size;
+let total = 0; for (const p of [...packs, 'game.v3.js', 'index.html']) total += fs.statSync(path.join(DIST, p)).size;
 console.log('built', DIST, (total / 1e6).toFixed(1) + ' MB', packs.length + ' packs');

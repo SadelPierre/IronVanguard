@@ -10,6 +10,14 @@ A Call of Duty–style first-person shooter that runs in your browser. Everythin
 
 You don't need to install anything or run a web server. Keep the `assets` folder next to `index.html`.
 
+## What's new (graphics and fixes update)
+- **Respawn fix:** Mission layouts are now identical on every load, so checkpoints never put you inside a shipping container. Loading a save always checks for free space, and if you ever get wedged in geometry the game moves you to the nearest open spot.
+- **Enemies:** Soldiers now face and walk the way they're moving. They backpedal and strafe with their legs, and their arms hold the rifle in front of them. They wear mission-specific camo: woodland, desert, urban or night.
+- **Iron Harbor:** Real corrugated ISO containers with doors and weathering, lattice ship-to-shore cranes, a quayside with bollards and tyre fenders, crane rails, a chain-link perimeter, road markings, rain-wet reflective asphalt, buoys and cargo ships on the horizon.
+- **Desert missions:** Boulders, quiver trees and scrub (they're lighter on the GPU than the old rocks), plus proper burnt-out car and truck wrecks.
+- **Operation Midnight:** Wet reflective streets, roller shutters, AC units, security lights, hydrants and trash cans.
+- **Everywhere:** Height fog that glows toward the sun (aerial perspective), a more detailed M4 and brighter gun materials so weapons read as metal and polymer.
+
 ## Missions
 | # | Mission | Setting | Objectives |
 |---|---------|---------|------------|

@@ -6,7 +6,7 @@ import { Player } from './player.js';
 import { EnemyManager, DIFFICULTY } from './enemies.js';
 import { updateSun } from './env.js';
 import { audio } from './audio.js';
-import { LEVELS } from './levels.js';
+import { LEVELS, seedLevel } from './levels.js';
 import { Pickups } from './pickups.js';
 import { keyName } from './input.js';
 
@@ -43,6 +43,7 @@ export class Game {
     this.enemies.onDeath = e => this.pickups.dropFrom(e);
     onProgress(0.3, 'Building ' + def.name);
     this._supplies = null;
+    seedLevel(def.id);
     const L = await def.build(this, onProgress);
     for (const sp of this._supplies || []) this.pickups.add('supply', sp);
     this.level = { ...this.level, ...L };
@@ -52,7 +53,8 @@ export class Game {
     const lo = save && save.weapons ? { ...loadout, primary: save.weapons[0].id, secondary: save.weapons[1].id } : loadout;
     await this.player.setLoadout(lo);
     this.player.loadout = loadout;
-    this.player.spawn(L.spawn, L.spawnYaw || 0);
+    this.spawnPoint = L.spawn.clone();
+    this.player.spawn(this.world.findSafeSpot(L.spawn), L.spawnYaw || 0);
     this.saveData = save;
     this.engine.setScene(scene);
     this.engine.camera.fov = this.settings.fov; this.engine.camera.far = L.far || 1500; this.engine.camera.updateProjectionMatrix();
@@ -329,6 +331,9 @@ export class Game {
     if (sv.pos) P.pos.fromArray(sv.pos);
     else { const o = this.objectives[Math.max(0, sv.objIdx - 1)]; if (o?.pos) P.pos.set(o.pos.x, 0, o.pos.z); }
     if (sv.hostage?.follow && this.hostage && !sv.pos) this.hostage.pos.copy(P.pos).add(new THREE.Vector3(1.5, 0, 1.5));
+    // never restore into solid geometry (or the harbour water)
+    P.pos.copy(this.world.findSafeSpot(P.pos, this.spawnPoint)); P.vel.set(0, 0, 0); P.onGround = true;
+    if (this.hostage && sv.hostage?.follow) this.hostage.pos.copy(this.world.findSafeSpot(this.hostage.pos, P.pos));
     P.yaw = sv.yaw || 0; P.health = Math.min(P.maxHealth, sv.health || P.maxHealth);
     sv.weapons?.forEach((w, i) => { if (P.weapons[i]) { P.weapons[i].ammo = w.ammo; P.weapons[i].reserve = w.reserve; } });
     if (sv.cur) { P.weapons[P.cur].model.group.visible = false; P.cur = sv.cur; P.weapons[P.cur].model.group.visible = true; }

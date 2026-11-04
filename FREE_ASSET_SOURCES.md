@@ -7,7 +7,10 @@
 | PBR textures (15 sets: sand, grass, asphalt, plaster, brick, concrete, containers, metal, wood…) | Poly Haven — polyhaven.com/textures | CC0 |
 | HDRI sky lighting (day, noon, sunset, night) | Poly Haven — polyhaven.com/hdris | CC0 |
 | 3D props (scoped bolt-action rifle, service pistol, crates, barrels, propane tanks, jerrycans, barriers, car, rocks, street lamps, generator…) | Poly Haven — polyhaven.com/models | CC0 |
-| Animated soldier (Idle/Walk/Run) | three.js examples `Soldier.glb` (Mixamo character) | Mixamo terms, free for projects |
+| Extra props: roller-shutter doors, AC units, security lights, trash cans, hydrants, buoys, sea marker, lifebuoys, plastic and military crates, road barriers, utility boxes, manhole covers | Poly Haven — polyhaven.com/models | CC0 |
+| Desert nature: Namaqualand boulders, quiver trees, wild rooibos scrub, dry branches (decimated for real-time) | Poly Haven — polyhaven.com/models | CC0 |
+| Shipping containers, gantry cranes, quayside, chain-link fence, cargo ships, vehicle wrecks, M4 viewmodel | Built procedurally in `scenery.js` / `weapons.js` | Yours |
+| Animated soldier (Idle/Walk/Run), re-skinned in-shader with per-mission camo | three.js examples `Soldier.glb` (Mixamo character) | Mixamo terms, free for projects |
 | Water normal map | three.js examples | MIT |
 | All sound effects and music | Procedurally synthesized in `audio.js` | Yours |
 

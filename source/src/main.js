@@ -1,4 +1,6 @@
 // Entry point: wires engine, input, UI and game together and runs the main loop
+import { installAtmosphere } from './scenery.js';
+installAtmosphere();
 import { Engine } from './engine.js';
 import { Input } from './input.js';
 import { HUD } from './hud.js';

@@ -127,6 +127,16 @@ export class Player {
     const h = this.crouch ? 1.15 : 1.8;
     const res = G.world.collideCylinder(this.pos, 0.33, h, this.vel);
     this._ceiling = res.ceiling;
+    // unstuck watchdog: if we're wedged inside geometry, or pushing against it without moving for 1.2 s, hop to the nearest free spot
+    {
+      const inside = G.world.overlaps(this.pos, 0.3, h);
+      const pushing = moving && this.onGround && Math.hypot(this.pos.x - (this._lastPX ?? this.pos.x), this.pos.z - (this._lastPZ ?? this.pos.z)) < 0.002;
+      this._stuckT = inside || (pushing && G.world.overlaps(this.pos, 0.36, h)) ? (this._stuckT || 0) + dt : 0;
+      if (this._stuckT > (inside ? 0.25 : 1.2) || this.pos.y < -3) {
+        this.pos.copy(G.world.findSafeSpot(this.pos.y < -3 ? this.pos.clone().setY(0) : this.pos, G.spawnPoint)); this.vel.set(0, 0, 0); this._stuckT = 0;
+      }
+      this._lastPX = this.pos.x; this._lastPZ = this.pos.z;
+    }
     if (this.pos.y + h > res.ceiling && this.vel.y > 0) { this.vel.y = 0; this.pos.y = res.ceiling - h; }
     const wasAir = !this.onGround;
     if (this.pos.y <= res.groundY + 0.001) {

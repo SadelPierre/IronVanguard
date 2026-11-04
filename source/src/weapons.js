@@ -1,10 +1,11 @@
 // Weapon definitions, attachments and first-person viewmodels
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { loadModel, loadTexture } from './assets.js';
 
 export const WEAPONS = {
-  m4a1: { name: 'M4A1', type: 'Assault Rifle', slot: 'primary', sound: 'ar', damage: [32, 22], range: [30, 70], head: 2.0, rpm: 800, mag: 30, reserve: 180, reload: 2.1, reloadEmpty: 2.6, auto: true, modes: ['auto', 'semi'], ads: 0.22, zoom: 1.25, hip: 3.2, adsSpread: 0.15, recoil: [0.9, 0.35], kick: 0.022, move: 0.95, model: 'm4', sightY: 0.092, desc: 'Versatile 5.56 carbine. Controllable recoil, fast handling.' },
+  m4a1: { name: 'M4A1', type: 'Assault Rifle', slot: 'primary', sound: 'ar', damage: [32, 22], range: [30, 70], head: 2.0, rpm: 800, mag: 30, reserve: 180, reload: 2.1, reloadEmpty: 2.6, auto: true, modes: ['auto', 'semi'], ads: 0.22, zoom: 1.25, hip: 3.2, adsSpread: 0.15, recoil: [0.9, 0.35], kick: 0.022, move: 0.95, model: 'm4', sightY: 0.094, desc: 'Versatile 5.56 carbine. Controllable recoil, fast handling.' },
   ak47: { name: 'AK-47', type: 'Assault Rifle', slot: 'primary', sound: 'ak', damage: [40, 28], range: [28, 65], head: 2.0, rpm: 600, mag: 30, reserve: 150, reload: 2.4, reloadEmpty: 2.9, auto: true, modes: ['auto', 'semi'], ads: 0.26, zoom: 1.25, hip: 3.6, adsSpread: 0.2, recoil: [1.35, 0.55], kick: 0.03, move: 0.93, model: 'ak', sightY: 0.08, desc: 'Hard-hitting 7.62. Heavy recoil, rewards burst fire.' },
   mp5: { name: 'MP5', type: 'Submachine Gun', slot: 'primary', sound: 'smg', damage: [28, 16], range: [15, 40], head: 1.8, rpm: 850, mag: 30, reserve: 210, reload: 1.8, reloadEmpty: 2.3, auto: true, modes: ['auto', 'semi'], ads: 0.16, zoom: 1.15, hip: 2.4, adsSpread: 0.25, recoil: [0.55, 0.3], kick: 0.016, move: 1.05, model: 'mp5', sightY: 0.085, desc: 'Fast and accurate up close. Great on the move.' },
   m870: { name: 'M870', type: 'Shotgun', slot: 'primary', sound: 'shotgun', damage: [22, 5], range: [7, 22], head: 1.3, rpm: 70, mag: 6, reserve: 36, reload: 0.55, reloadEmpty: 0.55, shellReload: true, pellets: 9, pelletSpread: 4.0, auto: false, modes: ['pump'], ads: 0.22, zoom: 1.1, hip: 4.0, adsSpread: 3.0, recoil: [4.0, 1.0], kick: 0.07, move: 0.97, model: 'shotgun', sightY: 0.07, desc: 'Pump-action 12 gauge. Devastating in close quarters.' },
@@ -71,9 +72,11 @@ export async function gunMaterials() {
   ]);
   const n2 = nor.clone(); n2.repeat.set(3, 3); n2.needsUpdate = true;
   MATS = {
-    metal: new THREE.MeshStandardMaterial({ color: 0x232528, metalness: 0.85, roughness: 0.38, normalMap: n2, normalScale: new THREE.Vector2(0.15, 0.15) }),
-    metalWorn: new THREE.MeshStandardMaterial({ color: 0x3a3b3d, metalness: 0.9, roughness: 0.3, normalMap: n2, normalScale: new THREE.Vector2(0.2, 0.2) }),
-    polymer: new THREE.MeshStandardMaterial({ color: 0x18191b, metalness: 0.05, roughness: 0.62, normalMap: n2, normalScale: new THREE.Vector2(0.35, 0.35) }),
+    metal: new THREE.MeshStandardMaterial({ color: 0x34373b, metalness: 0.7, roughness: 0.36, normalMap: n2, normalScale: new THREE.Vector2(0.12, 0.12) }),
+    metalWorn: new THREE.MeshStandardMaterial({ color: 0x4a4b4e, metalness: 0.85, roughness: 0.3, normalMap: n2, normalScale: new THREE.Vector2(0.2, 0.2) }),
+    barrel: new THREE.MeshStandardMaterial({ color: 0x2a2a2b, metalness: 0.8, roughness: 0.48 }),
+    slot: new THREE.MeshStandardMaterial({ color: 0x0a0a0a, metalness: 0.2, roughness: 0.8 }),
+    polymer: new THREE.MeshStandardMaterial({ color: 0x27282a, metalness: 0.05, roughness: 0.52, normalMap: n2, normalScale: new THREE.Vector2(0.3, 0.3) }),
     tan: new THREE.MeshStandardMaterial({ color: 0x8a7656, metalness: 0.05, roughness: 0.7, normalMap: n2, normalScale: new THREE.Vector2(0.3, 0.3) }),
     wood: new THREE.MeshStandardMaterial({ color: 0xb06a3a, map: wood, normalMap: woodN, normalScale: new THREE.Vector2(0.4, 0.4), metalness: 0, roughness: 0.45 }),
     brass: new THREE.MeshStandardMaterial({ color: 0xc9a046, metalness: 1, roughness: 0.25 }),
@@ -116,6 +119,18 @@ function rb(w, h, l, m, x, y, z, rad = 0.006) { const me = new THREE.Mesh(new Ro
 function bx(w, h, l, m, x, y, z) { const me = new THREE.Mesh(new THREE.BoxGeometry(w, h, l), m); me.position.set(x, y, z); return me; }
 function cy(r, len, m, x, y, z, seg = 20, r2) { const me = new THREE.Mesh(new THREE.CylinderGeometry(r2 ?? r, r, len, seg), m); me.rotation.x = Math.PI / 2; me.position.set(x, y, z); return me; }
 function add(g, ...ms) { for (const m of ms) g.add(m); return ms[0]; }
+// extrude a side profile given as [z, y] points (barrel along -Z) to a part of the given width
+function prof(pts, width, m, x = 0, bevel = 0.0025) {
+  const sh = new THREE.Shape(); sh.moveTo(pts[0][0], pts[0][1]); for (const p of pts.slice(1)) sh.lineTo(p[0], p[1]); sh.closePath();
+  const geo = new THREE.ExtrudeGeometry(sh, { depth: width - bevel * 2, bevelEnabled: true, bevelSize: bevel, bevelThickness: bevel, bevelSegments: 2, curveSegments: 6 });
+  geo.rotateY(-Math.PI / 2); geo.translate(x + (width - bevel * 2) / 2, 0, 0);
+  return new THREE.Mesh(geo, m);
+}
+// many small boxes merged into one mesh (rail teeth, slots)
+function boxes(list, m) {
+  const gs = list.map(([w, h, l, x, y, z]) => { const b = new THREE.BoxGeometry(w, h, l); b.translate(x, y, z); return b; });
+  return new THREE.Mesh(mergeGeometries(gs), m);
+}
 
 function curvedMag(m, len, w, d, curve, segs = 6) {
   const g = new THREE.Group(); const sl = len / segs; let y = 0, z = 0, a = 0;
@@ -159,24 +174,42 @@ async function buildModel(id, att) {
   let leftHand = new THREE.Vector3(0, -0.035, -0.3), rightHand = new THREE.Vector3(0, -0.07, 0.07);
   switch (w.model) {
     case 'm4': {
-      add(g, rb(0.052, 0.058, 0.25, M.metal, 0, 0.035, -0.05));
-      add(g, rb(0.048, 0.05, 0.19, M.metal, 0, -0.012, -0.02));
-      add(g, bx(0.024, 0.012, 0.23, M.metal, 0, 0.069, -0.045));
-      for (let i = 0; i < 12; i++) add(g, bx(0.026, 0.004, 0.008, M.metal, 0, 0.076, -0.15 + i * 0.019));
-      add(g, rb(0.06, 0.062, 0.31, M.polymer, 0, 0.032, -0.33, 0.012));
-      add(g, bx(0.024, 0.01, 0.3, M.metal, 0, 0.068, -0.33));
-      add(g, cy(0.0105, 0.26, M.metal, 0, 0.03, -0.6));
-      add(g, cy(0.016, 0.07, M.metal, 0, 0.03, -0.75));
-      add(g, bx(0.02, 0.05, 0.02, M.metal, 0, 0.075, -0.47)); add(g, bx(0.004, 0.02, 0.004, M.metal, 0, 0.098, -0.47));
-      add(g, cy(0.017, 0.18, M.metal, 0, 0.03, 0.16));
-      add(g, rb(0.045, 0.085, 0.17, M.polymer, 0, 0.005, 0.29, 0.01));
-      const grip = add(g, rb(0.03, 0.11, 0.045, M.polymer, 0, -0.075, 0.075, 0.008)); grip.rotation.x = -0.3;
-      add(g, bx(0.006, 0.006, 0.07, M.metal, 0, -0.045, 0.02));
-      add(g, bx(0.012, 0.012, 0.03, M.metal, 0, 0.06, 0.09)); // charging handle
-      P.mag = curvedMag(M.metal, 0.17, 0.024, 0.062, 0.32); P.mag.position.set(0, -0.035, -0.075); g.add(P.mag);
-      if (att.optic === 'iron') { add(g, bx(0.024, 0.03, 0.03, M.metal, 0, 0.088, 0.06)); add(g, bx(0.006, 0.012, 0.006, M.metal, 0, 0.105, 0.06)); }
-      P.railY = 0.076; P.railZ = -0.02; muzzle.position.set(0, 0.03, -0.79); eject.position.set(0.03, 0.04, -0.02);
-      leftHand.set(0, -0.025, -0.33);
+      // upper receiver + forward assist, ejection port and brass deflector
+      add(g, prof([[0.085, 0.014], [0.085, 0.062], [0.072, 0.07], [-0.17, 0.07], [-0.175, 0.062], [-0.175, 0.014]], 0.05, M.metal));
+      const fa = add(g, cy(0.008, 0.035, M.metal, 0.031, 0.05, 0.055, 12)); fa.rotation.y = 0.25;
+      add(g, bx(0.002, 0.016, 0.06, M.slot, 0.0255, 0.042, -0.035));
+      add(g, bx(0.012, 0.022, 0.016, M.metal, 0.03, 0.05, 0.012));
+      add(g, bx(0.04, 0.008, 0.014, M.metal, 0, 0.069, 0.084)); // charging handle
+      // lower receiver with magwell
+      add(g, prof([[0.09, 0.014], [0.09, -0.012], [0.06, -0.03], [-0.04, -0.03], [-0.05, -0.08], [-0.128, -0.08], [-0.134, -0.016], [-0.172, -0.012], [-0.172, 0.014]], 0.046, M.metal));
+      // trigger guard + trigger
+      add(g, bx(0.012, 0.005, 0.075, M.metal, 0, -0.066, 0.005)); add(g, bx(0.012, 0.036, 0.006, M.metal, 0, -0.048, -0.032));
+      const trg = add(g, bx(0.006, 0.026, 0.006, M.metalWorn, 0, -0.045, 0.004)); trg.rotation.x = 0.25;
+      // pistol grip
+      add(g, prof([[0.04, -0.028], [0.078, -0.028], [0.118, -0.132], [0.108, -0.148], [0.078, -0.148], [0.06, -0.11], [0.05, -0.07], [0.038, -0.05]], 0.032, M.polymer));
+      // buffer tube + collapsible stock + butt pad
+      add(g, cy(0.0165, 0.2, M.metal, 0, 0.043, 0.18, 18));
+      add(g, prof([[0.17, 0.064], [0.335, 0.064], [0.35, 0.05], [0.35, -0.058], [0.335, -0.066], [0.3, -0.048], [0.225, -0.008], [0.17, 0.016]], 0.042, M.polymer));
+      add(g, bx(0.044, 0.118, 0.012, M.slot, 0, 0.0, 0.355));
+      // octagonal free-float handguard with M-LOK slots
+      const hg = add(g, cy(0.0275, 0.33, M.polymer, 0, 0.037, -0.34, 8, 0.026)); hg.rotation.z = Math.PI / 8;
+      const sl = [];
+      for (const sx of [-1, 1]) for (let k = 0; k < 4; k++) sl.push([0.002, 0.012, 0.05, sx * 0.026, 0.037, -0.235 - k * 0.07]);
+      for (let k = 0; k < 4; k++) sl.push([0.012, 0.002, 0.05, 0, 0.0105, -0.235 - k * 0.07]);
+      add(g, boxes(sl, M.slot));
+      // full-length picatinny rail with teeth
+      add(g, bx(0.022, 0.008, 0.58, M.metal, 0, 0.071, -0.215));
+      const teeth = []; for (let i = 0; i < 44; i++) teeth.push([0.024, 0.005, 0.0055, 0, 0.0775, 0.07 - i * 0.0128]);
+      add(g, boxes(teeth, M.metal));
+      // gas block, A2 front sight, barrel, birdcage flash hider
+      add(g, prof([[-0.515, 0.024], [-0.515, 0.068], [-0.523, 0.11], [-0.533, 0.11], [-0.545, 0.068], [-0.545, 0.024]], 0.018, M.metal));
+      add(g, cy(0.011, 0.22, M.barrel, 0, 0.035, -0.62, 16));
+      add(g, cy(0.0125, 0.055, M.barrel, 0, 0.035, -0.755, 16));
+      add(g, boxes([[0.0254, 0.003, 0.025, 0, 0.035, -0.765], [0.003, 0.0254, 0.025, 0, 0.035, -0.765]], M.slot));
+      P.mag = curvedMag(M.metal, 0.17, 0.023, 0.06, 0.32); P.mag.position.set(0, -0.06, -0.09); g.add(P.mag);
+      if (att.optic === 'iron') { add(g, prof([[0.075, 0.08], [0.04, 0.08], [0.045, 0.108], [0.07, 0.108]], 0.026, M.metal)); add(g, bx(0.006, 0.012, 0.006, M.metal, 0, 0.115, 0.06)); }
+      P.railY = 0.076; P.railZ = -0.02; muzzle.position.set(0, 0.035, -0.79); eject.position.set(0.03, 0.045, -0.035);
+      leftHand.set(0, -0.022, -0.33);
       break;
     }
     case 'ak': {
