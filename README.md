@@ -26,6 +26,8 @@ You don't need to install anything or run a web server. Keep the `assets` folder
 - The story is told through briefings and fully voiced radio chatter with subtitles. Every line was recorded with the free Kokoro neural voice model (Apache-2.0) and plays through a radio filter. Enemies shout recorded callouts. You can switch voices off in Settings.
 
 ## Realism
+- Soldiers (enemies and squadmates) move with **motion-captured rifle animations** from Mixamo: rifle idle, walk, run, crouch, aim and fire, reload, and hit reactions. Legs and upper body blend separately, so a soldier can walk while aiming or reloading.
+- **Real recorded gunshots** from The Free Firearm Sound Library (CC0): AR-15 for the M4, AK-47, Swedish K for the MP5, Benelli Nova for the shotgun, Tikka .30-06 for the sniper rifle, Walther PPQ for the pistol, 1911 for the magnum and SKS for the LMG.
 - Enemies fall as **physics ragdolls** pushed by the shot or blast that killed them.
 - Realistic **blood**: entry and exit sprays, splatter on walls behind targets, drips, and pools under bodies. You can reduce it or turn it off in Settings → Blood & gore.
 - Smarter enemies: they reload, lay down suppressing fire, flank you, push when you reload, fall back when losing, shout callouts and sometimes throw your grenades back.

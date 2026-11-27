@@ -37,3 +37,10 @@
 1. Put the files in the project's asset folders (`opt/tex`, `opt/models`, `opt/hdri`). GLBs work best when optimized with `gltf-transform optimize --texture-compress webp`.
 2. Run `node build.mjs`. It packs everything into `assets/*.js` so the game still opens with a double-click.
 3. Reference new models with `world.prop('model_name', x, z)` inside `levels.js`.
+
+
+## Added Nov 27, 2026
+| What | Source | License |
+|------|--------|---------|
+| Soldier animations (rifle idle, walk, run, crouch, firing, reloading, hit reaction), retargeted onto the soldier rig by `source/tools/retarget/` | Mixamo (Adobe), downloaded by the project owner | Mixamo terms: free for games |
+| Gunshot recordings (AR-15, AK-47, Carl Gustav M45, Benelli Nova, Tikka T3, Walther PPQ, 1911, SKS) | The Free Firearm Sound Library, Still North Media (Ben Jaszczak, Brian Nelson, Kevin Heras, Matthew Nanney) | CC0 |

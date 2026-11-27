@@ -117,6 +117,40 @@ function camoMaterial(src, scheme, scale) {
 }
 
 let template = null;
+
+// ---- Mixamo rifle animations (retargeted offline onto the soldier rig, see tools/retarget/) ----
+// Each clip is split into a lower-body (hips + legs) and an upper-body layer so the soldier can
+// walk with his legs while his arms aim, reload or flinch.
+const LOWER = /Hips|UpLeg|Leg$|Foot|ToeBase/;
+let rifleClips = null;
+function loadRifleClips() {
+  if (rifleClips !== null) return rifleClips;
+  rifleClips = false;
+  const b64 = window.__A?.['anim/soldier_anims.bin']; if (!b64) return false;
+  const bin = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+  const jl = new DataView(bin.buffer).getUint32(0, true);
+  const meta = JSON.parse(new TextDecoder().decode(bin.subarray(4, 4 + jl)));
+  let off = 4 + jl; if (off % 2) off++;
+  const I = new Int16Array(bin.buffer, off, (bin.byteLength - off) >> 1);
+  rifleClips = { hips: {} };
+  for (const c of meta.clips) {
+    const times = Float32Array.from({ length: c.frames }, (_, i) => i / c.fps), dur = (c.frames - 1) / c.fps;
+    const up = [], lo = [];
+    for (const [n, o, k] of c.bones) {
+      const cnt = k ? 1 : c.frames, vals = new Float32Array(cnt * 4);
+      for (let i = 0; i < cnt * 4; i++) vals[i] = I[o + i] / 32767;
+      const tr = new THREE.QuaternionKeyframeTrack(n + '.quaternion', k ? [0] : times, vals);
+      (LOWER.test(n) ? lo : up).push(tr);
+      if (n === 'mixamorigHips') rifleClips.hips[c.name] = tr.createInterpolant();
+    }
+    const hp = new Float32Array(c.frames * 3); for (let i = 0; i < hp.length; i++) hp[i] = I[c.hip + i] / 100;
+    lo.push(new THREE.VectorKeyframeTrack('mixamorigHips.position', times, hp));
+    rifleClips['U_' + c.name] = new THREE.AnimationClip('U_' + c.name, dur, up);
+    rifleClips['L_' + c.name] = new THREE.AnimationClip('L_' + c.name, dur, lo);
+  }
+  return rifleClips;
+}
+const _m4 = new THREE.Matrix4(), _q4 = new THREE.Quaternion(), ZERO = new THREE.Vector3();
 export async function loadSoldier() {
   if (!template) template = await loadModel('Soldier');
   return template;
@@ -164,8 +198,20 @@ export class Enemy {
     this.mixer = new THREE.AnimationMixer(m);
     this.actions = {};
     for (const clip of src.animations) this.actions[clip.name] = this.mixer.clipAction(clip);
-    for (const k of ['Idle', 'Walk', 'Run']) { const a = this.actions[k]; a.enabled = true; a.setEffectiveWeight(k === 'Idle' ? 1 : 0); a.play(); }
-    this.actions.Idle.time = Math.random() * 3;
+    const RC = !this.hostage && loadRifleClips();
+    this.rig = !!RC;
+    if (this.rig) {
+      this.acts = {};
+      for (const k in RC) { if (k === 'hips') continue; const a = this.mixer.clipAction(RC[k]); a.enabled = true; a.setEffectiveWeight(0); a.play(); this.acts[k] = a; }
+      const t0 = Math.random() * 9; this.acts.U_RIdle.time = this.acts.L_RIdle.time = t0;
+      this.acts.U_Fire.time = Math.random() * 3;
+      this.lw = { RIdle: 1, RWalk: 0, RRun: 0, Crouch: 0 };
+      this.uw = { RIdle: 1, RWalk: 0, RRun: 0, Crouch: 0, Fire: 0, Reload: 0, Hit: 0 };
+      this.acts.L_RIdle.setEffectiveWeight(1); this.acts.U_RIdle.setEffectiveWeight(1);
+    } else {
+      for (const k of ['Idle', 'Walk', 'Run']) { const a = this.actions[k]; a.enabled = true; a.setEffectiveWeight(k === 'Idle' ? 1 : 0); a.play(); }
+      this.actions.Idle.time = Math.random() * 3;
+    }
     this.weights = { Idle: 1, Walk: 0, Run: 0 };
     this.b = {};
     for (const n of ['Hips', 'Spine', 'Spine1', 'Spine2', 'Neck', 'Head', 'RightShoulder', 'RightArm', 'RightForeArm', 'RightHand', 'LeftArm', 'LeftForeArm', 'LeftHand', 'LeftUpLeg', 'LeftFoot', 'RightUpLeg', 'RightFoot']) this.b[n] = bone(m, n);
@@ -180,6 +226,7 @@ export class Enemy {
   headPos(out = V()) { return this.b.Head ? this.b.Head.getWorldPosition(out).add(V(0, 0.09, 0)) : out.copy(this.pos).add(V(0, 1.7, 0)); }
 
   setAnim(dt, speed) {
+    if (this.rig) return this.setRigAnim(dt, speed);
     const target = this.alive ? (speed > 3.5 ? 'Run' : speed > 0.3 ? 'Walk' : 'Idle') : 'Idle';
     for (const k of ['Idle', 'Walk', 'Run']) {
       this.weights[k] += ((k === target ? 1 : 0) - this.weights[k]) * Math.min(1, dt * 6);
@@ -188,6 +235,65 @@ export class Enemy {
     const dir = this.backpedal ? -1 : 1;
     this.actions.Walk.timeScale = dir * Math.max(0.6, speed / 1.5);
     this.actions.Run.timeScale = dir * Math.max(0.7, speed / 5.0);
+  }
+
+  setRigAnim(dt, speed) {
+    const loco = !this.alive ? 'RIdle' : speed > 3.5 ? 'RRun' : speed > 0.3 ? 'RWalk' : (this.crouched ? 'Crouch' : 'RIdle');
+    const k = Math.min(1, dt * 6);
+    for (const n in this.lw) { this.lw[n] += ((n === loco ? 1 : 0) - this.lw[n]) * k; this.acts['L_' + n].setEffectiveWeight(this.lw[n]); }
+    const reloading = this.reloadT > 0;
+    if (reloading && !this._rl) { const a = this.acts.U_Reload; a.time = 0; a.timeScale = a.getClip().duration / Math.max(0.8, this.reloadT); }
+    this._rl = reloading;
+    if (this.flinch > 0.2 && !this._hit) this.acts.U_Hit.time = 0.12;
+    this._hit = this.flinch > 0.2;
+    const special = reloading ? 'Reload' : this.flinch > 0.05 ? 'Hit' : (this.aimBlend > 0.5 && speed < 3.5) ? 'Fire' : null;
+    for (const n in this.uw) {
+      const want = special ? (n === special ? 1 : 0) : (n === loco ? 1 : 0);
+      this.uw[n] += (want - this.uw[n]) * Math.min(1, dt * (n === 'Hit' ? 16 : 8));
+      this.acts['U_' + n].setEffectiveWeight(this.uw[n]);
+    }
+    const dir = this.backpedal ? -1 : 1;
+    this.acts.L_RWalk.timeScale = this.acts.U_RWalk.timeScale = dir * Math.max(0.6, speed / 1.6);
+    this.acts.L_RRun.timeScale = this.acts.U_RRun.timeScale = dir * Math.max(0.7, speed / 5.2);
+  }
+
+  // The upper-body layer was authored on top of its own hip rotation. When the legs play a different
+  // clip, re-aim the spine so the torso keeps the orientation the upper clip intended.
+  fixUpperBody() {
+    const H = rifleClips.hips; let x = 0, y = 0, z = 0, w = 0, tw = 0;
+    for (const n in this.uw) {
+      const wt = this.uw[n]; if (wt < 0.01 || !H[n]) continue;
+      const r = H[n].evaluate(this.acts['U_' + n].time);
+      const sgn = tw > 0 && (x * r[0] + y * r[1] + z * r[2] + w * r[3]) < 0 ? -wt : wt;
+      x += r[0] * sgn; y += r[1] * sgn; z += r[2] * sgn; w += r[3] * sgn; tw += wt;
+    }
+    if (!tw || !this.b.Spine) return;
+    _q.set(x, y, z, w).normalize();
+    _q2.copy(this.b.Hips.quaternion).invert().multiply(_q);
+    this.b.Spine.quaternion.premultiply(_q2);
+    this.b.Hips.updateMatrixWorld(true);
+  }
+
+  // rifle rides in the right hand; it points at the support hand, or follows the right hand while reloading
+  placeRifleInHands() {
+    const hR = this.b.RightHand.getWorldPosition(_a), hL = this.b.LeftHand.getWorldPosition(_b);
+    const dir = _c.subVectors(hL, hR); const len = dir.length(); dir.multiplyScalar(1 / Math.max(1e-4, len));
+    this.b.RightHand.getWorldQuaternion(_q4);
+    _m4.lookAt(ZERO, dir, UP); const qAim = _q.setFromRotationMatrix(_m4);
+    const rel = (this.uw.Reload || 0) + (this.uw.Hit || 0) * 0.5;
+    if (rel < 0.25 && len > 0.12 && len < 0.7) {
+      const off = _q2.copy(_q4).invert().multiply(qAim);
+      if (!this._rOff) this._rOff = off.clone(); else this._rOff.slerp(off, 0.1);
+    }
+    let q = qAim;
+    if (this._rOff && (rel > 0.02 || len < 0.12 || len > 0.7)) {
+      _q3.copy(_q4).multiply(this._rOff);
+      q = rel >= 0.99 || len < 0.12 || len > 0.7 ? _q3 : qAim.clone().slerp(_q3, Math.min(1, rel));
+    }
+    this.rifle.quaternion.copy(q);
+    const fwd = _t.set(0, 0, -1).applyQuaternion(q);
+    this.rifle.position.copy(hR).addScaledVector(fwd, 0.06);
+    this.rifle.updateMatrixWorld(true);
   }
 
   syncModel(dt) {
@@ -208,6 +314,7 @@ export class Enemy {
     }
     (this._lastSync ||= V()).copy(this.pos);
     this.mixer.update(dt);
+    if (this.rig) this.fixUpperBody();
     m.updateMatrixWorld(true);
     // lower body turns toward the direction of travel; upper body keeps facing the aim direction
     {
@@ -235,6 +342,15 @@ export class Enemy {
       _q.setFromAxisAngle(right, -this.aimPitch * 0.5 * aim + 0.05);
       sp.getWorldQuaternion(_q2); sp.parent.getWorldQuaternion(_q3);
       sp.quaternion.copy(_q3.invert().multiply(_q.multiply(_q2))); sp.updateMatrixWorld(true);
+    }
+    if (this.rig) {
+      this.placeRifleInHands();
+      if (this.b.Head) {
+        _q.setFromAxisAngle(right, -this.aimPitch * 0.3 * aim);
+        const h = this.b.Head; h.getWorldQuaternion(_q2); h.parent.getWorldQuaternion(_q3);
+        h.quaternion.copy(_q3.invert().multiply(_q.multiply(_q2))); h.updateMatrixWorld(true);
+      }
+      return;
     }
     const sh = this.b.RightArm.getWorldPosition(V());
     const aimDir = fwd.clone().multiplyScalar(Math.cos(this.aimPitch)).add(V(0, Math.sin(this.aimPitch), 0)).normalize();

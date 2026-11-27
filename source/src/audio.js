@@ -212,6 +212,22 @@ export class Audio {
     this.setEnvironment('outdoor');
     this.generate();
     this.ready = true;
+    this.loadRecordedGuns();
+  }
+
+  // Real gunshots from The Free Firearm Sound Library (CC0, Still North Media). Each weapon class gets
+  // 2-3 recorded variants; the synthesized shots stay as the fallback until these finish decoding.
+  async loadRecordedGuns() {
+    const A = window.__A || {};
+    for (const k of Object.keys(SHOTS)) {
+      const keys = [0, 1, 2].map(i => `sfx/shot_${k}_${i}.ogg`).filter(n => A[n]);
+      if (!keys.length) continue;
+      const bufs = (await Promise.all(keys.map(async n => {
+        const bin = atob(A[n]), u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+        try { return await this.ctx.decodeAudioData(u.buffer); } catch (e) { return null; }
+      }))).filter(Boolean);
+      if (bufs.length) { this.buffers['shot_' + k] = bufs; this.recorded = true; }
+    }
   }
 
   buf(data) { const b = this.ctx.createBuffer(1, data.length, SR); b.copyToChannel(data, 0); return b; }
@@ -303,7 +319,7 @@ export class Audio {
 
   // distant gunfire gets darker with distance
   shot(kind, pos, isPlayer) {
-    if (isPlayer) return this.play('shot_' + kind, { vol: 0.9, reverb: 0.45 });
+    if (isPlayer) return this.play('shot_' + kind, { vol: 0.9, reverb: this.recorded && kind !== 'suppressed' ? 0.25 : 0.45, detune: 0.03 });
     const d = this.listenerPos ? pos.distanceTo(this.listenerPos) : 20;
     const lp = Math.max(900, 16000 - d * 160);
     return this.play('shot_' + kind, { pos, vol: 1.3, reverb: 0.6, lowpass: lp });

@@ -1,0 +1,110 @@
+<!doctype html><html><body style="margin:0;background:#888">
+<script type="importmap">{"imports":{"three":"./three/build/three.module.js","three/addons/":"./three/examples/jsm/"}}</script>
+<script type="module">
+import * as THREE from 'three';
+import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
+import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
+window.THREE = THREE;
+const fbx = new FBXLoader();
+const loadF = n => new Promise((r, j) => fbx.load(encodeURI(n), r, undefined, j));
+const gl = new GLTFLoader(); gl.setMeshoptDecoder(MeshoptDecoder);
+const loadG = n => new Promise((r, j) => gl.load(n, r, undefined, j));
+const bonesOf = o => { const m = {}; o.traverse(b => { if (b.isBone && !m[b.name]) m[b.name] = b; }); return m; };
+const wq = (o) => o.getWorldQuaternion(new THREE.Quaternion());
+const wp = (o) => o.getWorldPosition(new THREE.Vector3());
+const facing = (B) => { const l = wp(B.mixamorigLeftUpLeg), r = wp(B.mixamorigRightUpLeg); const side = l.sub(r); side.y = 0; side.normalize(); return Math.atan2(side.x, side.z); };
+
+const FILES = { RIdle: 'Rifle Idle.fbx', RWalk: 'Rifle Walk.fbx', RRun: 'Rifle Run.fbx', Fire: 'Firing Rifle.fbx', Reload: 'Reloading.fbx', Hit: 'Hit Reaction.fbx', Crouch: 'Idle Crouching.fbx', Death: 'Death.fbx' };
+let tgt, T, tgtBind = {}, tgtOrder = [], src0, S0, srcBind = {}, C, Cinv, legScale, srcHipBindY, tgtHipBindY;
+
+async function setup() {
+  const sol = await loadG('Soldier.glb');
+  tgt = sol.scene; window.sol = sol;
+  // apply T-pose
+  const mx = new THREE.AnimationMixer(tgt); mx.clipAction(sol.animations.find(c => c.name === 'TPose')).play(); mx.update(0); tgt.updateMatrixWorld(true);
+  T = bonesOf(tgt);
+  for (const n in T) { tgtBind[n] = { q: wq(T[n]), p: wp(T[n]) }; tgtOrder.push(n); }
+  // source bind = rest pose from the skinned download
+  src0 = await loadF('Rifle Idle (1).fbx');
+  let sk = null; src0.traverse(o => { if (o.isSkinnedMesh && !sk) sk = o.skeleton; });
+  sk.pose(); src0.updateMatrixWorld(true);
+  S0 = bonesOf(src0);
+  for (const n in S0) srcBind[n] = { q: wq(S0[n]), p: wp(S0[n]) };
+  const fa = facing(S0), fb = facing(T);
+  C = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), fb - fa); Cinv = C.clone().invert();
+  const legLen = (bind, B) => bind.mixamorigHips.p.y - bind.mixamorigLeftFoot.p.y;
+  legScale = legLen(tgtBind) / legLen(srcBind);
+  return { fa, fb, legScale, tgtHips: tgtBind.mixamorigHips.p.toArray(), srcHips: srcBind.mixamorigHips.p.toArray(), nT: tgtOrder.length, missing: tgtOrder.filter(n => !S0[n]) };
+}
+
+function retarget(anim, name, fps, inPlace) {
+  const clip = anim.animations.find(c => c.duration > 0);
+  const A = bonesOf(anim);
+  const mx = new THREE.AnimationMixer(anim); const act = mx.clipAction(clip); act.play();
+  const frames = Math.max(2, Math.round(clip.duration * fps) + 1);
+  const names = tgtOrder.filter(n => A[n] && srcBind[n]);
+  const data = {}; for (const n of names) data[n] = [];
+  const hipP = [];
+  const tw = {}; let hip0 = null;
+  for (let f = 0; f < frames; f++) {
+    mx.setTime(Math.min(clip.duration, f / fps)); anim.updateMatrixWorld(true);
+    // world target rotations
+    for (const n of names) {
+      const D = wq(A[n]).multiply(srcBind[n].q.clone().invert());
+      const Dc = C.clone().multiply(D).multiply(Cinv);
+      tw[n] = Dc.multiply(tgtBind[n].q);
+    }
+    // to local
+    for (const n of names) {
+      const b = T[n]; const parent = b.parent;
+      const pw = (parent && parent.isBone && tw[parent.name]) ? tw[parent.name] : wq(parent);
+      const lq = pw.clone().invert().multiply(tw[n]);
+      data[n].push(lq.x, lq.y, lq.z, lq.w);
+    }
+    // hips translation (world delta, scaled, rotated into target frame)
+    const hp = wp(A.mixamorigHips); if (!hip0) hip0 = hp.clone();
+    const d = hp.clone().sub(srcBind.mixamorigHips.p).multiplyScalar(legScale).applyQuaternion(C);
+    if (inPlace) { const d0 = hip0.clone().sub(srcBind.mixamorigHips.p).multiplyScalar(legScale).applyQuaternion(C); d.x = d0.x; d.z = d0.z; }
+    const tpw = tgtBind.mixamorigHips.p.clone().add(d);
+    const local = T.mixamorigHips.parent.worldToLocal(tpw.clone());
+    hipP.push(local.x, local.y, local.z);
+  }
+  // make quaternion signs continuous
+  for (const n of names) { const a = data[n]; for (let i = 4; i < a.length; i += 4) { const dot = a[i] * a[i - 4] + a[i + 1] * a[i - 3] + a[i + 2] * a[i - 2] + a[i + 3] * a[i - 1]; if (dot < 0) for (let k = 0; k < 4; k++) a[i + k] = -a[i + k]; } }
+  return { name, fps, frames, duration: (frames - 1) / fps, bones: names, q: data, hip: hipP };
+}
+
+window.build = async () => {
+  const info = await setup();
+  const out = { info, clips: {} };
+  for (const [k, f] of Object.entries(FILES)) {
+    const a = await loadF(f);
+    out.clips[k] = retarget(a, k, k === 'RIdle' || k === 'Crouch' ? 15 : 24, ['RWalk', 'RRun'].includes(k));
+  }
+  window.OUT = out;
+  return { info, clips: Object.fromEntries(Object.entries(out.clips).map(([k, c]) => [k, [c.frames, c.duration.toFixed(2), c.bones.length]])) };
+};
+
+// preview grid: list of [clip, t]
+window.preview = (list) => {
+  const W = 1200, H = 600, n = list.length, cw = W / n;
+  const r = new THREE.WebGLRenderer({ antialias: true }); r.setSize(W, H); r.setScissorTest(true); document.body.innerHTML = ''; document.body.appendChild(r.domElement);
+  list.forEach(([clipName, t, ang], i) => {
+    const c = window.OUT.clips[clipName];
+    const times = Array.from({ length: c.frames }, (_, k) => k / c.fps);
+    const tracks = c.bones.map(nm => new THREE.QuaternionKeyframeTrack(nm + '.quaternion', times, c.q[nm]));
+    tracks.push(new THREE.VectorKeyframeTrack('mixamorigHips.position', times, c.hip));
+    const clip = new THREE.AnimationClip(clipName, c.duration, tracks);
+    const s = SkeletonUtils.clone(window.sol.scene);
+    const sc = new THREE.Scene(); sc.background = new THREE.Color(0x8899aa); sc.add(new THREE.HemisphereLight(0xffffff, 0x444444, 2.5)); const dl = new THREE.DirectionalLight(0xffffff, 2); dl.position.set(2, 4, 3); sc.add(dl);
+    sc.add(s); const g = new THREE.Mesh(new THREE.PlaneGeometry(10, 10), new THREE.MeshStandardMaterial({ color: 0x556655 })); g.rotation.x = -Math.PI / 2; sc.add(g);
+    const mx = new THREE.AnimationMixer(s); mx.clipAction(clip).play(); mx.setTime(t);
+    const a = ang ?? 2.4; const cam = new THREE.PerspectiveCamera(40, cw / H, 0.1, 50); cam.position.set(Math.sin(a) * 3.4, 1.4, Math.cos(a) * 3.4); cam.lookAt(0, 0.9, 0);
+    r.setViewport(i * cw, 0, cw, H); r.setScissor(i * cw, 0, cw, H); r.render(sc, cam);
+  });
+  return true;
+};
+window.ready = true;
+</script></body></html>

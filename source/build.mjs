@@ -10,10 +10,12 @@ const entry = process.argv[3] || 'src/main.js';
 fs.rmSync(DIST, { recursive: true, force: true });
 fs.mkdirSync(DIST + '/assets', { recursive: true });
 
-const groups = { textures: [], models: [], hdri: [], voice: [] };
+const groups = { textures: [], models: [], hdri: [], voice: [], anim: [], sfx: [] };
 for (const f of fs.readdirSync(OPT + '/tex')) groups.textures.push(['tex/' + f, OPT + '/tex/' + f]);
 for (const f of fs.readdirSync(OPT + '/models')) groups.models.push(['model/' + f, OPT + '/models/' + f]);
 for (const f of fs.readdirSync(OPT + '/hdri')) groups.hdri.push(['hdri/' + f, OPT + '/hdri/' + f]);
+if (fs.existsSync(OPT + '/anim')) for (const f of fs.readdirSync(OPT + '/anim')) groups.anim.push(['anim/' + f, OPT + '/anim/' + f]);
+if (fs.existsSync(OPT + '/sfx')) for (const f of fs.readdirSync(OPT + '/sfx')) groups.sfx.push(['sfx/' + f, OPT + '/sfx/' + f]);
 if (fs.existsSync(OPT + '/voice')) for (const f of fs.readdirSync(OPT + '/voice')) groups.voice.push(['voice/' + f, OPT + '/voice/' + f]);
 
 const packs = [];
