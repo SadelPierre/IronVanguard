@@ -654,7 +654,7 @@ export class EnemyManager {
     if (!L) return; this._lastShout = now;
     const line = L[(Math.random() * L.length) | 0];
     G.hud.enemyShout?.(line);
-    try { const S = window.speechSynthesis; if (S && !S.speaking) { const u = new SpeechSynthesisUtterance(line); const vs = S.getVoices().filter(v => /^en/i.test(v.lang)); u.voice = vs.find(v => /male|david|mark|guy|george/i.test(v.name)) || vs[0] || null; u.pitch = 0.6 + Math.random() * 0.25; u.rate = 1.15; u.volume = Math.max(0.15, 1 - src.pos.distanceTo(G.player.pos) / 32) * 0.8; S.speak(u); } } catch (e) {}
+    src.voice ??= (Math.random() * 4) | 0; audio.shout(line, src.pos, src.voice);
   }
 
   // squad brain: runs a few times per second

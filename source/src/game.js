@@ -357,12 +357,12 @@ export class Game {
 
   // ---------------------------------------------------------------- story radio
   radio(who, text, delay = 0) {
-    const t = setTimeout(() => {
+    const t = setTimeout(async () => {
       if (this.state !== 'playing' || this.failed) return;
       const c = CAST[who] || { name: who };
-      this.hud.radio(c.name, text, who);
-      audio.play('beep', { vol: 0.25, rate: 0.8, reverb: 0 });
-      if (this.settings.voices !== false) audio.speak(text, who);
+      const r = this.settings.voices !== false ? await audio.speak(text, who) : false;
+      if (r) { const t2 = setTimeout(() => this.hud.radio(c.name, text, who, r.duration), r.start * 1000); this._radioTimers.push(t2); }
+      else { this.hud.radio(c.name, text, who); audio.play('beep', { vol: 0.25, rate: 0.8, reverb: 0 }); }
     }, delay * 1000);
     (this._radioTimers ||= []).push(t);
   }

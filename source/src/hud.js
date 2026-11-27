@@ -59,11 +59,11 @@ export class HUD {
     this.feed.prepend(d); setTimeout(() => d.remove(), 2200);
   }
   pickupMsg(text) { const d = document.createElement('div'); d.textContent = text; const el = document.getElementById('pickmsg'); el.appendChild(d); setTimeout(() => d.remove(), 1600); }
-  radio(name, text, who) {
+  radio(name, text, who, dur) {
     const el = document.getElementById('radio');
     el.querySelector('.who').textContent = name; el.querySelector('.txt').textContent = text;
     el.className = 'on ' + (who === 'RASK' ? 'enemy' : '');
-    clearTimeout(this._rt); this._rt = setTimeout(() => el.className = '', 2500 + text.length * 55);
+    clearTimeout(this._rt); this._rt = setTimeout(() => el.className = '', dur ? dur * 1000 + 900 : 2500 + text.length * 55);
   }
   enemyShout(line) { const el = document.getElementById('shout'); el.textContent = '"' + line + '"'; el.style.opacity = 1; clearTimeout(this._st); this._st = setTimeout(() => el.style.opacity = 0, 1600); }
   setLives(n, max) {

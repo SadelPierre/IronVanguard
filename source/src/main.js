@@ -17,7 +17,7 @@ const hud = new HUD();
 const ui = new UI();
 engine.setQuality(ui.settings.quality, ui.settings.renderScale);
 const game = new Game(engine, input, hud, ui, ui.settings);
-window.__game = game; // handy for debugging from the console
+window.__game = game; window.__audio = audio; // handy for debugging from the console
 
 ui.input = input;
 input.setBinds(ui.settings.binds);

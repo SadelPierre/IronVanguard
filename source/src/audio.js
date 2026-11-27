@@ -361,20 +361,61 @@ export class Audio {
   }
 }
 
-// radio voices via the browser's built-in speech synthesis (free, offline on most systems)
-const VOICE = { KESSLER: { pitch: 0.75, rate: 0.95, pref: ['male', 'david', 'daniel', 'george', 'guy'] }, OKAFOR: { pitch: 0.85, rate: 1.0, pref: ['male', 'mark', 'ryan', 'guy'] }, VOSS: { pitch: 1.15, rate: 1.05, pref: ['female', 'zira', 'susan', 'sonia', 'aria'] }, HAYES: { pitch: 1.05, rate: 1.0, pref: ['female', 'hazel', 'libby', 'jenny', 'samantha'] }, RASK: { pitch: 0.55, rate: 0.85, pref: ['male', 'pavel', 'george', 'david'] }, OVERLORD: { pitch: 0.9, rate: 1.1, pref: ['male'] } };
-Audio.prototype.speak = function (text, who) {
-  try {
-    const S = window.speechSynthesis; if (!S) return;
-    const v = VOICE[who] || { pitch: 1, rate: 1, pref: [] };
-    const u = new SpeechSynthesisUtterance(text.replace(/\.\.\./g, ', '));
-    const voices = S.getVoices().filter(x => /^en/i.test(x.lang));
-    const pick = voices.find(x => v.pref.some(p => x.name.toLowerCase().includes(p))) || voices[0];
-    if (pick) u.voice = pick;
-    u.pitch = v.pitch; u.rate = v.rate; u.volume = Math.min(1, (this.volume.master || 0.8) * 1.1);
-    S.speak(u);
-  } catch (e) {}
+// ---- Recorded dialogue (Kokoro neural TTS, pre-rendered at build time: see tools/make_voices.py) ----
+export function voiceKey(who, text) { let h = 5381; const s = who + '|' + text; for (let i = 0; i < s.length; i++) h = (Math.imul(h, 33) ^ s.charCodeAt(i)) >>> 0; return h.toString(16).padStart(8, '0'); }
+Audio.prototype.voiceBuffer = async function (k) {
+  this._vc ||= new Map();
+  if (this._vc.has(k)) return this._vc.get(k);
+  const b64 = window.__A?.['voice/' + k + '.ogg'];
+  if (!b64 || !this.ctx) { this._vc.set(k, null); return null; }
+  const p = (async () => { const bin = atob(b64), u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); try { return await this.ctx.decodeAudioData(u.buffer); } catch (e) { return null; } })();
+  this._vc.set(k, p); return p;
 };
-Audio.prototype.stopSpeech = function () { try { window.speechSynthesis?.cancel(); } catch (e) {} };
+// military radio: band-limited, lightly overdriven, with a squelch click and static bed
+Audio.prototype.radioChain = function () {
+  if (this._radio) return this._radio;
+  const c = this.ctx, inp = c.createGain();
+  const hp = c.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 320;
+  const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 3600;
+  const pk = c.createBiquadFilter(); pk.type = 'peaking'; pk.frequency.value = 1800; pk.gain.value = 4; pk.Q.value = 0.8;
+  const sh = c.createWaveShaper(); const n = 1024, cv = new Float32Array(n); for (let i = 0; i < n; i++) { const x = i / (n - 1) * 2 - 1; cv[i] = Math.tanh(x * 1.6) / Math.tanh(1.6); } sh.curve = cv;
+  const out = c.createGain(); out.gain.value = 1.35;
+  inp.connect(hp).connect(lp).connect(pk).connect(sh).connect(out).connect(this.master);
+  this._radio = inp; return inp;
+};
+Audio.prototype.speak = async function (text, who, onDone) {
+  if (!this.ready) return false;
+  const buf = await this.voiceBuffer(voiceKey(who, text));
+  if (!buf) return false;
+  const c = this.ctx, t = c.currentTime + 0.12;
+  // queue so lines never talk over each other
+  const start = Math.max(t, this._radioFree || 0);
+  const chain = this.radioChain();
+  const src = c.createBufferSource(); src.buffer = buf;
+  const g = c.createGain(); g.gain.value = 1; src.connect(g).connect(chain);
+  // squelch in/out + static under the voice
+  const sq = (at, f) => { const o = c.createOscillator(), og = c.createGain(); o.frequency.value = f; og.gain.setValueAtTime(0.0001, at); og.gain.exponentialRampToValueAtTime(0.12, at + 0.005); og.gain.exponentialRampToValueAtTime(0.0001, at + 0.06); o.connect(og).connect(chain); o.start(at); o.stop(at + 0.08); };
+  sq(start - 0.06, 1400); sq(start + buf.duration + 0.02, 900);
+  const nb = this._noiseBuf ||= (() => { const b = c.createBuffer(1, c.sampleRate, c.sampleRate), d = b.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1; return b; })();
+  const ns = c.createBufferSource(); ns.buffer = nb; ns.loop = true; const ng = c.createGain(); ng.gain.value = 0.018; ns.connect(ng).connect(chain); ns.start(start - 0.06); ns.stop(start + buf.duration + 0.1);
+  // duck the game a little while someone talks
+  if (this.sfx) { this.sfx.gain.cancelScheduledValues(start); this.sfx.gain.setTargetAtTime(0.7, start, 0.1); this.sfx.gain.setTargetAtTime(1, start + buf.duration, 0.3); }
+  src.start(start); this._radioFree = start + buf.duration + 0.25;
+  if (onDone) src.onended = onDone;
+  this._lastRadio = src;
+  return { start: start - c.currentTime, duration: buf.duration };
+};
+// enemy shouts: positional, no radio filter
+Audio.prototype.shout = async function (text, pos, variant = 0) {
+  if (!this.ready) return;
+  const buf = await this.voiceBuffer(voiceKey('ENEMY' + (variant % 4), text)); if (!buf) return;
+  const c = this.ctx, src = c.createBufferSource(); src.buffer = buf;
+  const p = c.createPanner(); p.panningModel = 'HRTF'; p.distanceModel = 'inverse'; p.refDistance = 4; p.rolloffFactor = 1.2;
+  if (p.positionX) { p.positionX.value = pos.x; p.positionY.value = pos.y + 1.6; p.positionZ.value = pos.z; } else p.setPosition(pos.x, pos.y + 1.6, pos.z);
+  const g = c.createGain(); g.gain.value = 1.4; src.connect(g).connect(p).connect(this.sfx);
+  const rs = c.createGain(); rs.gain.value = 0.35; p.connect(rs).connect(this.reverb);
+  src.start();
+};
+Audio.prototype.stopSpeech = function () { try { this._lastRadio?.stop(); } catch (e) {} this._radioFree = 0; };
 
 export const audio = new Audio();

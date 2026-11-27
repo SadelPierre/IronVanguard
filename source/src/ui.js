@@ -196,7 +196,7 @@ export class UI {
         <h2>AUDIO</h2>
         ${rng('master', 0, 1, 0.05, 'Master volume', v => Math.round(v * 100))}
         ${rng('music', 0, 1, 0.05, 'Music volume', v => Math.round(v * 100))}
-        ${tg('voices', 'Radio voices (spoken dialogue)')}
+        ${tg('voices', 'Voiced dialogue & enemy callouts')}
       </div>`, 'settingsS');
     this.root.querySelector('.back').onclick = () => { this.save(); this.onSettings?.(); back(); };
     this.root.querySelectorAll('[data-q]').forEach(o => o.onclick = () => { S.quality = o.dataset.q; this.save(); this.onSettings?.(); this.settingsScreen(back); });
