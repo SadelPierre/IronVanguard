@@ -266,6 +266,7 @@ export class Audio {
   setListener(cam) {
     if (!this.ctx) return;
     const l = this.ctx.listener, p = cam.position, t = this.ctx.currentTime;
+    if (!Number.isFinite(p.x + p.y + p.z)) return;
     const f = cam.getWorldDirection(this._f || (this._f = new cam.position.constructor()));
     if (l.positionX) {
       l.positionX.setValueAtTime(p.x, t); l.positionY.setValueAtTime(p.y, t); l.positionZ.setValueAtTime(p.z, t);
@@ -359,5 +360,21 @@ export class Audio {
     setTimeout(() => nodes.forEach(n => { try { n.stop(); } catch (e) {} }), 1700);
   }
 }
+
+// radio voices via the browser's built-in speech synthesis (free, offline on most systems)
+const VOICE = { KESSLER: { pitch: 0.75, rate: 0.95, pref: ['male', 'david', 'daniel', 'george', 'guy'] }, OKAFOR: { pitch: 0.85, rate: 1.0, pref: ['male', 'mark', 'ryan', 'guy'] }, VOSS: { pitch: 1.15, rate: 1.05, pref: ['female', 'zira', 'susan', 'sonia', 'aria'] }, HAYES: { pitch: 1.05, rate: 1.0, pref: ['female', 'hazel', 'libby', 'jenny', 'samantha'] }, RASK: { pitch: 0.55, rate: 0.85, pref: ['male', 'pavel', 'george', 'david'] }, OVERLORD: { pitch: 0.9, rate: 1.1, pref: ['male'] } };
+Audio.prototype.speak = function (text, who) {
+  try {
+    const S = window.speechSynthesis; if (!S) return;
+    const v = VOICE[who] || { pitch: 1, rate: 1, pref: [] };
+    const u = new SpeechSynthesisUtterance(text.replace(/\.\.\./g, ', '));
+    const voices = S.getVoices().filter(x => /^en/i.test(x.lang));
+    const pick = voices.find(x => v.pref.some(p => x.name.toLowerCase().includes(p))) || voices[0];
+    if (pick) u.voice = pick;
+    u.pitch = v.pitch; u.rate = v.rate; u.volume = Math.min(1, (this.volume.master || 0.8) * 1.1);
+    S.speak(u);
+  } catch (e) {}
+};
+Audio.prototype.stopSpeech = function () { try { window.speechSynthesis?.cancel(); } catch (e) {} };
 
 export const audio = new Audio();

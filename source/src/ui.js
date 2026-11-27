@@ -4,6 +4,7 @@ import { DIFFICULTY } from './enemies.js';
 import { LEVELS } from './levels.js';
 import { audio } from './audio.js';
 import { ACTIONS, defaultBinds, keyName } from './input.js';
+import { campaign, STORY, ACTS, LIVES, playable } from './campaign.js';
 
 const $ = s => document.querySelector(s);
 const store = {
@@ -11,7 +12,7 @@ const store = {
   set(k, v) { try { localStorage.setItem('iv_' + k, JSON.stringify(v)); } catch (e) {} },
 };
 
-export const DEFAULT_SETTINGS = { quality: 'high', renderScale: 1, sensitivity: 1, fov: 78, invertY: false, master: 0.8, music: 0.5, showFps: false, autoReload: true, aimToggle: false, difficulty: 'regular' };
+export const DEFAULT_SETTINGS = { quality: 'high', renderScale: 1, sensitivity: 1, fov: 78, invertY: false, master: 0.8, music: 0.5, showFps: false, autoReload: true, aimToggle: false, difficulty: 'regular', gore: 'full', voices: true };
 export const DEFAULT_LOADOUT = {
   primary: 'm4a1', secondary: 'm9', lethal: 'frag', tactical: 'flash', perks: ['stopping', 'sleight'],
   att: { m4a1: { optic: 'reddot', muzzle: 'none', under: 'grip', mag: 'std' }, ak47: { optic: 'iron', muzzle: 'none', under: 'none', mag: 'std' }, mp5: { optic: 'holo', muzzle: 'suppressor', under: 'none', mag: 'std' }, m870: { optic: 'iron', muzzle: 'none', under: 'none', mag: 'std' }, m249: { optic: 'iron', muzzle: 'none', under: 'none', mag: 'std' }, bolt762: { muzzle: 'none', mag: 'std' }, m9: { optic: 'iron', muzzle: 'none', under: 'none', mag: 'std' }, d50: { optic: 'iron', muzzle: 'none', under: 'none', mag: 'std' } },
@@ -45,31 +46,82 @@ export class UI {
 
   main() {
     audio.startMusic('menu');
-    const sv = this.readSave();
+    const C = campaign.state, act = campaign.active;
+    const cur = act ? STORY.find(m => m.id === campaign.currentId()) : null;
+    const tags = n => Array.from({ length: C.maxLives }, (_, i) => `<i class="${i < n ? 'on' : ''}"></i>`).join('');
     this.screen(`
-      <div class="title"><div class="t1">IRON VANGUARD</div><div class="t2">MODERN OPERATIONS</div></div>
+      <div class="title"><div class="t1">IRON VANGUARD</div><div class="t2">BLACK TIDE</div></div>
       <div class="mainnav">
-        ${sv ? `<button data-a="cont" class="primary">CONTINUE<small>${sv.levelName} — ${sv.fresh ? 'mission start' : sv.objText}</small></button>` : ''}
-        <button data-a="campaign" class="${sv ? '' : 'primary'}">CAMPAIGN</button>
+        ${act ? `<button data-a="cont" class="primary">CONTINUE CAMPAIGN<small>Mission ${campaign.missionNumber(cur.id)} — ${cur.title} &nbsp;·&nbsp; <span class="tags">${tags(C.lives)}</span> ${C.lives} ${C.lives === 1 ? 'life' : 'lives'}</small></button>` : ''}
+        <button data-a="newCampaign" class="${act ? '' : 'primary'}">NEW CAMPAIGN<small>Ironman: lose every life and you start over</small></button>
+        <button data-a="campaign">MISSION SELECT<small>Replay missions for practice — no lives at risk</small></button>
+        <button data-a="bonus">BONUS: LAST STAND</button>
         <button data-a="loadoutMain">LOADOUT</button>
         <button data-a="settingsMain">SETTINGS</button>
         <button data-a="controlsMain">CONTROLS</button>
+        <button data-a="hof">HALL OF FAME</button>
       </div>
       <div class="foot">Built with three.js • CC0 art from Poly Haven • Fully synthesized audio</div>`, 'main');
-    this.root.querySelectorAll('[data-a]').forEach(b => b.onclick = () => b.dataset.a === 'cont' ? this.onContinue(sv) : this[b.dataset.a]());
+    this.root.querySelectorAll('[data-a]').forEach(b => b.onclick = () => {
+      const a = b.dataset.a;
+      if (a === 'cont') this.continueCampaign();
+      else if (a === 'bonus') this.onDeploy('laststand', 'bonus');
+      else this[a]();
+    });
+  }
+
+  continueCampaign() {
+    const id = campaign.currentId(); const sv = this.readSave();
+    if (sv && sv.levelId === id) this.onContinue(sv, 'campaign'); else this.onDeploy(id, 'campaign');
+  }
+
+  newCampaign() {
+    const opts = Object.entries(LIVES).map(([k, n]) => `<div class="card diffc ${this.settings.difficulty === k ? 'sel' : ''}" data-d="${k}"><div><div class="cn">${DIFFICULTY[k].name}</div><div class="cs">${n} lives · ${k === 'recruit' ? 'Forgiving enemies' : k === 'regular' ? 'The intended experience' : k === 'hardened' ? 'Accurate, aggressive enemies' : 'Lethal. Every mistake counts.'}</div></div><div class="done">${'▮'.repeat(n)}</div></div>`).join('');
+    const warn = campaign.active ? `<p class="warn">Starting a new campaign will erase your current campaign (${campaign.state.lives} lives left).</p>` : '';
+    this.screen(`
+      <div class="hdr"><button class="back">‹ BACK</button><h1>NEW CAMPAIGN</h1></div>
+      <div class="cols"><div class="list">${opts}</div>
+      <div class="brief">
+        <div class="op">IRON VANGUARD: BLACK TIDE</div><div class="loc">IRONMAN CAMPAIGN</div>
+        <p>A routine hunt for an insurgent commander drags the 1st Vanguard Battalion into a war against <b>Black Tide</b>, a private army selling stolen missiles. Somebody inside your own command is helping them.</p>
+        <ul class="objs"><li>Your lives carry across the whole campaign. Every death costs one.</li><li>Respawn at your last checkpoint while you have lives left.</li><li><b>Lose your last life and the campaign is over.</b> You restart from Mission 1.</li><li>Earn lives back: finish a mission without dying, or find the hidden dog tag in each level (up to your maximum).</li></ul>
+        ${warn}
+        <div class="lo">LOADOUT: <b>${WEAPONS[this.loadout.primary].name}</b> + <b>${WEAPONS[this.loadout.secondary].name}</b> <button class="small" data-a="loadout">EDIT</button></div>
+        <button class="primary deploy">BEGIN CAMPAIGN ›</button>
+      </div></div>`);
+    this.root.querySelector('.back').onclick = () => this.main();
+    this.root.querySelectorAll('.diffc').forEach(c => c.onclick = () => { this.settings.difficulty = c.dataset.d; this.save(); this.newCampaign(); });
+    this.root.querySelector('[data-a=loadout]').onclick = () => this.loadoutScreen(() => this.newCampaign());
+    this.root.querySelector('.deploy').onclick = () => { campaign.start(this.settings.difficulty); window.ivTrack?.('campaign_start', { difficulty: this.settings.difficulty }); this.actCard(playable()[0].id, () => this.onDeploy(playable()[0].id, 'campaign')); };
+  }
+
+  actCard(id, then) {
+    const m = STORY.find(x => x.id === id), A = ACTS[m.act];
+    this.screen(`<div class="actcard"><div class="an">ACT ${A.n}</div><div class="at">${A.name}</div><p>${A.tag}</p></div>`, 'actS');
+    const go = () => { clearTimeout(t); removeEventListener('keydown', go); then(); };
+    const t = setTimeout(go, 4200); this.root.onclick = () => { this.root.onclick = null; go(); }; addEventListener('keydown', go, { once: true });
+  }
+
+  hof() {
+    const H = campaign.hallOfFame();
+    const rows = H.length ? H.map((r, i) => `<tr><td>${i + 1}</td><td>${r.won ? '<b class="won">CAMPAIGN COMPLETE</b>' : 'Fell at ' + r.reached}</td><td>${DIFFICULTY[r.difficulty]?.name || ''}</td><td>${r.missions}</td><td>${r.kills}</td><td>${r.deaths}</td><td>${fmtTime(r.time)}</td><td>${new Date(r.date).toLocaleDateString()}</td></tr>`).join('') : '<tr><td colspan="8">No campaign runs yet. Your finished and failed Ironman runs appear here.</td></tr>';
+    this.screen(`<div class="hdr"><button class="back">‹ BACK</button><h1>HALL OF FAME</h1></div>
+      <table class="hof"><tr><th>#</th><th>Result</th><th>Difficulty</th><th>Missions</th><th>Kills</th><th>Deaths</th><th>Time</th><th>Date</th></tr>${rows}</table>`);
+    this.root.querySelector('.back').onclick = () => this.main();
   }
 
   campaign() {
     const lv = LEVELS.find(l => l.id === this.selectedLevel);
-    const cards = LEVELS.map((l, i) => {
+    const order = [...playable().map(m => LEVELS.find(l => l.id === m.id)), ...LEVELS.filter(l => l.bonus)];
+    const cards = order.map((l, i) => {
       const p = this.progress[l.id];
       return `<div class="card ${l.id === lv.id ? 'sel' : ''}" data-l="${l.id}"><div class="num">${String(i).padStart(2, '0')}</div><div><div class="cn">${l.name}</div><div class="cs">${l.location}</div></div>${p ? `<div class="done">✔ ${fmtTime(p.best)}</div>` : ''}</div>`;
     }).join('');
     const diffs = Object.entries(DIFFICULTY).map(([k, d]) => `<div class="opt ${this.settings.difficulty === k ? 'sel' : ''}" data-d="${k}">${d.name}</div>`).join('');
     this.screen(`
-      <div class="hdr"><button class="back">‹ BACK</button><h1>CAMPAIGN</h1></div>
+      <div class="hdr"><button class="back">‹ BACK</button><h1>MISSION SELECT</h1><span class="note">Practice mode — no lives are used and nothing is saved</span></div>
       <div class="cols">
-        <div class="list">${cards}</div>
+        <div class="list">${cards}${STORY.filter(m => m.soon).map(m => `<div class="card soon"><div class="num">${String(campaign.missionNumber(m.id)).padStart(2, '0')}</div><div><div class="cn">${m.title.toUpperCase()}</div><div class="cs">Act ${ACTS[m.act].n} — coming soon</div></div></div>`).join('')}</div>
         <div class="brief">
           <div class="op">${lv.name}</div>
           <div class="loc">${lv.location} — ${lv.time}</div>
@@ -81,10 +133,10 @@ export class UI {
         </div>
       </div>`);
     this.root.querySelector('.back').onclick = () => this.main();
-    this.root.querySelectorAll('.card').forEach(c => c.onclick = () => { this.selectedLevel = c.dataset.l; this.campaign(); });
+    this.root.querySelectorAll('.card[data-l]').forEach(c => c.onclick = () => { this.selectedLevel = c.dataset.l; this.campaign(); });
     this.root.querySelectorAll('[data-d]').forEach(c => c.onclick = () => { this.settings.difficulty = c.dataset.d; this.save(); this.campaign(); });
     this.root.querySelector('[data-a=loadout]').onclick = () => this.loadoutScreen(() => this.campaign());
-    this.root.querySelector('.deploy').onclick = () => this.onDeploy(this.selectedLevel);
+    this.root.querySelector('.deploy').onclick = () => this.onDeploy(this.selectedLevel, LEVELS.find(l => l.id === this.selectedLevel).bonus ? 'bonus' : 'practice');
   }
 
   loadoutMain() { this.loadoutScreen(() => this.main()); }
@@ -135,6 +187,7 @@ export class UI {
         ${rng('renderScale', 0.5, 1.5, 0.05, 'Render scale', v => Math.round(v * 100) + '%')}
         ${rng('fov', 60, 100, 1, 'Field of view')}
         ${tg('showFps', 'Show FPS')}
+        <div class="srow"><span>Blood &amp; gore</span><div class="opts">${['full', 'reduced', 'off'].map(k => `<div class="opt ${S.gore === k ? 'sel' : ''}" data-g="${k}">${k.toUpperCase()}</div>`).join('')}</div></div>
         <h2>CONTROLS</h2>
         ${rng('sensitivity', 0.2, 3, 0.05, 'Mouse sensitivity', v => (+v).toFixed(2))}
         ${tg('invertY', 'Invert Y')}
@@ -143,9 +196,11 @@ export class UI {
         <h2>AUDIO</h2>
         ${rng('master', 0, 1, 0.05, 'Master volume', v => Math.round(v * 100))}
         ${rng('music', 0, 1, 0.05, 'Music volume', v => Math.round(v * 100))}
+        ${tg('voices', 'Radio voices (spoken dialogue)')}
       </div>`, 'settingsS');
     this.root.querySelector('.back').onclick = () => { this.save(); this.onSettings?.(); back(); };
     this.root.querySelectorAll('[data-q]').forEach(o => o.onclick = () => { S.quality = o.dataset.q; this.save(); this.onSettings?.(); this.settingsScreen(back); });
+    this.root.querySelectorAll('[data-g]').forEach(o => o.onclick = () => { S.gore = o.dataset.g; this.save(); this.onSettings?.(); this.settingsScreen(back); });
     this.root.querySelectorAll('[data-t]').forEach(o => o.onclick = () => { S[o.dataset.t] = !S[o.dataset.t]; this.save(); this.onSettings?.(); this.settingsScreen(back); });
     this.root.querySelectorAll('input[type=range]').forEach(r => r.oninput = () => {
       S[r.dataset.k] = parseFloat(r.value); r.nextElementSibling.textContent = r.dataset.k === 'renderScale' ? Math.round(r.value * 100) + '%' : ['master', 'music'].includes(r.dataset.k) ? Math.round(r.value * 100) : r.dataset.k === 'sensitivity' ? (+r.value).toFixed(2) : r.value;
@@ -188,9 +243,11 @@ export class UI {
     });
   }
 
-  loading(level) {
+  loading(level, mode = 'practice') {
+    const C = campaign.state, camp = mode === 'campaign' && C;
+    const head = camp ? `<div class="mnum">ACT ${campaign.actOf(level.id).n} · MISSION ${campaign.missionNumber(level.id)} &nbsp; ${this.livesRow(C.lives, C.maxLives)}</div>` : mode === 'practice' ? '<div class="mnum">PRACTICE — NO LIVES AT RISK</div>' : '';
     const tips = ['Crouching makes you harder to spot and steadies your aim.', 'Enemies show up on your radar when they fire at you.', 'Headshots deal double damage or more.', 'Flashbangs stun everyone who looks at them — including you.', 'Suppressors keep you off the radar but reduce range.', 'Explosive tanks and jerrycans can be shot to detonate them.', 'Hold Shift while scoped with the sniper rifle to steady your breath.', 'Sprint then press C to slide into cover.'];
-    this.screen(`<div class="loading">
+    this.screen(`<div class="loading">${head}
       <div class="op">${level.name}</div><div class="loc">${level.location} — ${level.time}</div>
       <p class="briefing">${level.briefing}</p>
       <div class="pbar"><div></div></div><div class="pstat">Loading…</div>
@@ -220,38 +277,96 @@ export class UI {
     });
   }
 
-  results(win, s, reason) {
-    if (win) {
-      const p = this.progress[s.level.id];
-      if (!p || s.time < p.best) this.progress[s.level.id] = { best: s.time, diff: s.difficulty };
-      this.save();
-    }
-    const idx = LEVELS.findIndex(l => l.id === s.level.id), next = LEVELS[idx + 1];
-    this.screen(`<div class="results ${win ? 'win' : 'lose'}">
-      <h1>${win ? 'MISSION COMPLETE' : 'MISSION FAILED'}</h1>
-      <div class="op">${s.level.name}</div>
-      ${reason ? `<p class="reason">${reason}</p>` : ''}
-      <div class="rs">
+  statsBlock(s) {
+    return `<div class="rs">
         <div><b>${fmtTime(s.time)}</b><span>TIME</span></div>
         ${s.targets ? `<div><b>${s.targets}</b><span>TARGETS</span></div>` : `<div><b>${s.kills}</b><span>KILLS</span></div>`}
         <div><b>${s.headshots}</b><span>HEADSHOTS</span></div>
         <div><b>${s.acc}%</b><span>ACCURACY</span></div>
         <div><b>${s.hits}/${s.shots}</b><span>HITS / SHOTS</span></div>
         <div><b>${s.difficulty}</b><span>DIFFICULTY</span></div>
-      </div>
+      </div>`;
+  }
+  livesRow(n, max, lost) {
+    return `<div class="livesbig">${Array.from({ length: max }, (_, i) => `<i class="${i < n ? 'on' : ''} ${lost && i === n ? 'lost' : ''}"></i>`).join('')}</div>`;
+  }
+
+  results(win, s, reason, mode = 'practice') {
+    if (win) {
+      const p = this.progress[s.level.id];
+      if (!p || s.time < p.best) this.progress[s.level.id] = { best: s.time, diff: s.difficulty };
+      this.save();
+    }
+    if (mode === 'campaign') return win ? this.campaignWin(s) : this.campaignDeath(s, reason);
+    this.screen(`<div class="results ${win ? 'win' : 'lose'}">
+      <h1>${win ? 'MISSION COMPLETE' : 'MISSION FAILED'}</h1>
+      <div class="op">${s.level.name} ${mode === 'practice' ? '<small>(practice)</small>' : ''}</div>
+      ${reason ? `<p class="reason">${reason}</p>` : ''}
+      ${this.statsBlock(s)}
       <div class="btns">
-        ${win && next ? `<button class="primary" data-a="next">NEXT MISSION ›</button>` : ''}
-        ${!win && this.readSave()?.levelId === s.level.id && !this.readSave()?.fresh ? '<button class="primary" data-a="checkpoint">LAST CHECKPOINT</button>' : ''}
-        <button class="${win && next ? '' : (!win && this.readSave()?.levelId === s.level.id && !this.readSave()?.fresh ? '' : 'primary')}" data-a="retry">${win ? 'REPLAY' : 'RESTART MISSION'}</button>
-        <button data-a="menu">CAMPAIGN</button>
+        <button class="primary" data-a="retry">${win ? 'REPLAY' : 'RETRY'}</button>
+        <button data-a="menu">MISSION SELECT</button>
+        <button data-a="main">MAIN MENU</button>
       </div></div>`, 'resultsS');
     this.root.querySelectorAll('[data-a]').forEach(b => b.onclick = () => {
-      if (b.dataset.a === 'next') { this.selectedLevel = next.id; this.onDeploy(next.id); }
-      else if (b.dataset.a === 'checkpoint') this.onContinue(this.readSave());
-      else if (b.dataset.a === 'retry') this.onDeploy(s.level.id);
-      else this.campaign();
+      if (b.dataset.a === 'retry') this.onDeploy(s.level.id, mode); else if (b.dataset.a === 'main') this.main(); else this.campaign();
     });
   }
-  missionComplete(s) { this.results(true, s); }
-  missionFailed(reason, s) { this.results(false, s, reason); }
+
+  campaignDeath(s, reason) {
+    const r = campaign.loseLife(), C = campaign.state;
+    if (r === 'gameover') return this.gameOver(s, reason);
+    const sv = this.readSave();
+    this.screen(`<div class="results lose">
+      <h1>KILLED IN ACTION</h1>
+      <div class="op">${s.level.name}</div>
+      ${reason ? `<p class="reason">${reason}</p>` : ''}
+      ${this.livesRow(C.lives, C.maxLives, true)}
+      <p class="lifeleft">${C.lives} ${C.lives === 1 ? 'LIFE' : 'LIVES'} REMAINING</p>
+      <div class="btns">
+        <button class="primary" data-a="respawn">${sv && !sv.fresh && sv.levelId === s.level.id ? 'RESPAWN AT CHECKPOINT' : 'RESTART MISSION'} ›</button>
+        <button data-a="main">MAIN MENU</button>
+      </div></div>`, 'resultsS');
+    this.root.querySelector('[data-a=respawn]').onclick = () => this.continueCampaign();
+    this.root.querySelector('[data-a=main]').onclick = () => this.main();
+  }
+
+  gameOver(s, reason) {
+    const C = campaign.state;
+    window.ivTrack?.('game_over', { mission: s.level.id, difficulty: C.difficulty, missions_cleared: C.idx });
+    this.screen(`<div class="results lose gameover">
+      <h1>GAME OVER</h1>
+      <div class="op">ALL ${C.maxLives} LIVES LOST</div>
+      ${reason ? `<p class="reason">${reason}</p>` : ''}
+      ${this.livesRow(0, C.maxLives)}
+      <p>Your campaign ended on <b>Mission ${campaign.missionNumber(s.level.id)}: ${s.level.name}</b>. The campaign has been reset to Mission 1.</p>
+      <div class="rs"><div><b>${C.idx}</b><span>MISSIONS CLEARED</span></div><div><b>${C.kills + (s.kills || 0)}</b><span>TOTAL KILLS</span></div><div><b>${C.deaths}</b><span>DEATHS</span></div><div><b>${DIFFICULTY[C.difficulty]?.name}</b><span>DIFFICULTY</span></div></div>
+      <div class="btns"><button class="primary" data-a="new">START NEW CAMPAIGN</button><button data-a="hof">HALL OF FAME</button><button data-a="main">MAIN MENU</button></div></div>`, 'resultsS');
+    this.root.querySelector('[data-a=new]').onclick = () => this.newCampaign();
+    this.root.querySelector('[data-a=hof]').onclick = () => this.hof();
+    this.root.querySelector('[data-a=main]').onclick = () => this.main();
+  }
+
+  campaignWin(s) {
+    const out = campaign.complete(s.level.id, s), C = campaign.state;
+    this.clearSave();
+    const nextM = out.nextId ? STORY.find(m => m.id === out.nextId) : null;
+    this.screen(`<div class="results win">
+      <h1>${out.finished ? 'CAMPAIGN COMPLETE' : 'MISSION COMPLETE'}</h1>
+      <div class="op">${s.level.name}</div>
+      ${out.bonus ? `<p class="bonus">${out.bonus}</p>` : ''}
+      ${this.livesRow(C.lives, C.maxLives)}
+      ${this.statsBlock(s)}
+      ${out.finished ? `<p>You have completed every available mission of <b>Black Tide</b>. New missions are on the way — your run is recorded in the Hall of Fame.</p>` : `<p class="nextm">NEXT: Mission ${campaign.missionNumber(nextM.id)} — ${nextM.title}</p>`}
+      <div class="btns">
+        ${out.finished ? '<button class="primary" data-a="hof">HALL OF FAME</button>' : '<button class="primary" data-a="next">NEXT MISSION ›</button>'}
+        <button data-a="main">MAIN MENU</button>
+      </div></div>`, 'resultsS');
+    const n = this.root.querySelector('[data-a=next]'); if (n) n.onclick = () => out.newAct ? this.actCard(out.nextId, () => this.onDeploy(out.nextId, 'campaign')) : this.onDeploy(out.nextId, 'campaign');
+    const h = this.root.querySelector('[data-a=hof]'); if (h) h.onclick = () => this.hof();
+    this.root.querySelector('[data-a=main]').onclick = () => this.main();
+  }
+
+  missionComplete(s, mode) { this.results(true, s, null, mode); }
+  missionFailed(reason, s, mode) { this.results(false, s, reason, mode); }
 }

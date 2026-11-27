@@ -9,6 +9,7 @@ import { audio } from './audio.js';
 import { LEVELS, seedLevel } from './levels.js';
 import { Pickups } from './pickups.js';
 import { keyName } from './input.js';
+import { campaign, CAST } from './campaign.js';
 
 const V = (x = 0, y = 0, z = 0) => new THREE.Vector3(x, y, z);
 
@@ -20,7 +21,8 @@ export class Game {
     hud.G = this;
   }
 
-  async loadLevel(id, loadout, difficulty, onProgress = () => {}, save = null) {
+  async loadLevel(id, loadout, difficulty, onProgress = () => {}, save = null, mode = 'practice') {
+    this.mode = mode; this.stopRadio?.();
     const def = LEVELS.find(l => l.id === id);
     this.levelDef = def; this.loadout = loadout;
     this.diff = DIFFICULTY[difficulty] || DIFFICULTY.regular; this.diffName = difficulty;
@@ -31,6 +33,7 @@ export class Game {
     this.engine.vmScene = new THREE.Scene();
     this.world = new World(scene);
     this.effects = new Effects(scene, this.engine.vmScene);
+    this.effects.world = this.world; this.effects.gore = this.settings.gore || 'full';
     this.effects.onShellBounce = p => { if (p.distanceTo(this.player.pos) < 6) audio.play('shell', { pos: p, vol: 0.25, rate: 1.6, reverb: 0 }); };
     this.enemies = new EnemyManager(this);
     this.player = new Player(this);
@@ -74,8 +77,13 @@ export class Game {
       audio.stopLoops();
       for (const [n, v] of def.ambience || []) audio.loop(n, v);
     } catch (e) { console.warn('audio setup failed', e); }
+    // hidden dog tag (+1 life) — campaign only, once per campaign
+    if (this.mode === 'campaign' && def.dogtag && !campaign.state?.tags?.includes(def.id)) this.pickups.add('dogtag', def.dogtag.clone());
+    this.radioQueue = [];
+    if (this.mode === 'campaign' && (!save || save.fresh)) this.ui.writeSave({ v: 1, fresh: true, levelId: def.id, levelName: def.name, difficulty: this.diffName, loadout: this.loadout, objIdx: 0, objText: 'Mission start', savedAt: Date.now() });
     if (save && !save.fresh) this.restore(save); else this.startObjective(0);
     this.state = 'playing';
+    window.ivTrack?.('mission_start', { mission: def.id, mode: this.mode, difficulty: this.diffName });
     onProgress(1, 'Ready');
   }
 
@@ -100,7 +108,8 @@ export class Game {
       let dmg = (st.damage[1] + (st.damage[0] - st.damage[1]) * fall) * (st.dmgMul || 1);
       const head = eh.part === 'head';
       dmg *= head ? st.head : eh.part === 'leg' || eh.part === 'arm' ? 0.8 : 1;
-      const killed = this.damageEnemy(e, dmg, head, dir, eh.point);
+      const force = (st.pellets ? 7 : st.scope ? 9 : st.sound === 'magnum' ? 6 : 3.5) * (head ? 1.2 : 1);
+      const killed = this.damageEnemy(e, dmg, head, dir, eh.point, null, { point: eh.point, force }, st.scope || st.pellets ? 1.6 : head ? 1.4 : 1);
       return { enemy: e, head, killed, point: eh.point };
     }
     if (wh) {
@@ -115,10 +124,10 @@ export class Game {
     return null;
   }
 
-  damageEnemy(e, dmg, head, dir, point, label) {
-    this.effects.blood(point, dir);
+  damageEnemy(e, dmg, head, dir, point, label, hit = null, heavy = 1) {
+    this.effects.blood(point, dir, heavy);
     audio.play('hit_flesh', { pos: point, vol: 0.7, reverb: 0 });
-    const killed = e.takeDamage(dmg, dir);
+    const killed = e.takeDamage(dmg, dir, hit || { point, force: 3.5 });
     if (killed && !this.completed && !this.failed) {
       this.killCount++; this.player.stats.kills++; if (head) this.player.stats.headshots++;
       this.hud.killfeed(label || (head ? 'HEADSHOT' : 'KILL'), head || label ? 150 : 100);
@@ -215,7 +224,8 @@ export class Game {
       if (d < R && this.world.lineOfSight(pos.clone().add(V(0, 0.4, 0)), e.pos.clone().add(V(0, 1, 0)))) {
         const dmg = 160 * (1 - d / R) + 20;
         if (e.hostage) { this.failMission('The hostage was killed.'); continue; }
-        if (e.takeDamage(dmg, e.pos.clone().sub(pos).normalize()) && byPlayer && !this.completed && !this.failed) { this.killCount++; P.stats.kills++; this.hud.killfeed('GRENADE KILL', 100); this.onEnemyKilled?.(e); }
+        this.effects.blood(e.pos.clone().add(V(0, 1, 0)), e.pos.clone().sub(pos).setY(0.3).normalize(), 1.6);
+        if (e.takeDamage(dmg, e.pos.clone().sub(pos).normalize(), { explosion: true, force: 5 + 9 * (1 - d / R) }) && byPlayer && !this.completed && !this.failed) { this.killCount++; P.stats.kills++; this.hud.killfeed('GRENADE KILL', 100); this.onEnemyKilled?.(e); }
       }
     }
     const pd = P.pos.distanceTo(pos);
@@ -237,6 +247,7 @@ export class Game {
     const o = this.objectives[i];
     if (!o) { this.completeMission(); return; }
     o.t = 0; o.progress = 0;
+    if (!this._restoring) for (const r of this.levelDef.radio || []) if (r.at === i) this.radio(r.who, r.text, r.delay || 0.6);
     o.onStart?.(this, o);
     if (o.type === 'interact') {
       this.interactables.push({ pos: o.pos, radius: o.radius || 2, label: o.label || 'Hold [F] to interact', time: o.time || 2.5, progress: 0, obj: o });
@@ -294,7 +305,7 @@ export class Game {
 
   // ---------------------------------------------------------------- save / load
   saveCheckpoint(manual) {
-    if (this.levelDef.noSave || this.failed || this.completed || !this.player.alive) return false;
+    if (this.mode !== 'campaign' || this.levelDef.noSave || this.failed || this.completed || !this.player.alive) return false;
     const P = this.player;
     const data = {
       v: 1, levelId: this.levelDef.id, levelName: this.levelDef.name, difficulty: this.diffName, loadout: this.loadout,
@@ -344,6 +355,27 @@ export class Game {
     this.hud.toast(sv.manual ? 'SAVED GAME LOADED' : 'CHECKPOINT LOADED', 2);
   }
 
+  // ---------------------------------------------------------------- story radio
+  radio(who, text, delay = 0) {
+    const t = setTimeout(() => {
+      if (this.state !== 'playing' || this.failed) return;
+      const c = CAST[who] || { name: who };
+      this.hud.radio(c.name, text, who);
+      audio.play('beep', { vol: 0.25, rate: 0.8, reverb: 0 });
+      if (this.settings.voices !== false) audio.speak(text, who);
+    }, delay * 1000);
+    (this._radioTimers ||= []).push(t);
+  }
+  stopRadio() { for (const t of this._radioTimers || []) clearTimeout(t); this._radioTimers = []; audio.stopSpeech?.(); }
+
+  collectDogTag() {
+    if (this.mode !== 'campaign') return;
+    const r = campaign.foundTag(this.levelDef.id);
+    this.hud.toast(r ? 'DOG TAG FOUND: +1 LIFE' : 'DOG TAG FOUND (LIVES FULL)', 3);
+    this.hud.setLives(campaign.state.lives, campaign.state.maxLives);
+    audio.play('objective', { vol: 0.5, reverb: 0, bus: audio.music });
+  }
+
   // ---------------------------------------------------------------- flow
   onPlayerDeath() {
     if (this.failed || this.completed) return;
@@ -352,19 +384,19 @@ export class Game {
 
   failMission(reason) {
     if (this.failed || this.completed) return;
-    this.failed = true; this.finalStats = this.summary(); audio.play('fail', { vol: 0.6, reverb: 0, bus: audio.music });
+    this.failed = true; this.finalStats = this.summary(); this.stopRadio();
+    window.ivTrack?.('mission_death', { mission: this.levelDef.id, mode: this.mode, reason, time: Math.round(this.levelTime) }); audio.play('fail', { vol: 0.6, reverb: 0, bus: audio.music });
     this.player.alive = false;
-    setTimeout(() => { this.state = 'over'; this.input.unlock(); this.ui.missionFailed(reason, this.finalStats); }, 2200);
+    setTimeout(() => { this.state = 'over'; this.input.unlock(); this.ui.missionFailed(reason, this.finalStats, this.mode); }, 2600);
   }
 
   completeMission() {
     if (this.completed || this.failed) return;
     this.completed = true; this.finalStats = this.summary();
-    const idx = LEVELS.findIndex(l => l.id === this.levelDef.id), next = LEVELS[idx + 1];
-    if (next) this.ui.writeSave({ v: 1, fresh: true, levelId: next.id, levelName: next.name, difficulty: this.diffName, objIdx: 0, objText: 'Mission start', savedAt: Date.now() }); else this.ui.clearSave();
+    window.ivTrack?.('mission_complete', { mission: this.levelDef.id, mode: this.mode, difficulty: this.diffName, time: Math.round(this.levelTime), kills: this.player.stats.kills });
     audio.play('objective', { vol: 0.7, reverb: 0, bus: audio.music });
     this.hud.setObjective('MISSION COMPLETE', true);
-    setTimeout(() => { this.state = 'over'; this.input.unlock(); this.ui.missionComplete(this.finalStats); }, 2500);
+    setTimeout(() => { this.state = 'over'; this.input.unlock(); this.ui.missionComplete(this.finalStats, this.mode); }, 2500);
   }
 
   summary() {

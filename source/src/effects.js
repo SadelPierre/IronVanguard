@@ -27,6 +27,21 @@ const holeTex = () => canvasTex(64, (g, s) => {
   g.strokeStyle = 'rgba(20,18,15,0.6)'; g.lineWidth = 1;
   for (let i = 0; i < 6; i++) { const a = Math.random() * 7; g.beginPath(); g.moveTo(c, c); g.lineTo(c + Math.cos(a) * c * (0.5 + Math.random() * 0.4), c + Math.sin(a) * c * (0.5 + Math.random() * 0.4)); g.stroke(); }
 });
+const splatTex = (seed) => canvasTex(256, (g, s) => {
+  let r = seed * 9301 + 49297; const rnd = () => ((r = (r * 9301 + 49297) % 233280) / 233280);
+  const c = s / 2;
+  const blob = (x, y, rad, a) => { const gr = g.createRadialGradient(x, y, 0, x, y, rad); gr.addColorStop(0, `rgba(255,255,255,${a})`); gr.addColorStop(0.75, `rgba(255,255,255,${a * 0.9})`); gr.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = gr; g.beginPath(); g.arc(x, y, rad, 0, 7); g.fill(); };
+  for (let i = 0; i < 9; i++) blob(c + (rnd() - 0.5) * 50, c + (rnd() - 0.5) * 50, 18 + rnd() * 28, 1);
+  // directional spray + droplets
+  for (let i = 0; i < 70; i++) { const a = rnd() * 6.28, d = 30 + rnd() * 95; blob(c + Math.cos(a) * d, c + Math.sin(a) * d * 0.7, 1.5 + rnd() * 6 * (1 - d / 140), 0.95); }
+  for (let i = 0; i < 6; i++) { const a = rnd() * 6.28; g.strokeStyle = 'rgba(255,255,255,0.85)'; g.lineWidth = 2 + rnd() * 3; g.beginPath(); g.moveTo(c, c); g.lineTo(c + Math.cos(a) * (60 + rnd() * 60), c + Math.sin(a) * (40 + rnd() * 50)); g.stroke(); }
+});
+const poolTex = () => canvasTex(256, (g, s) => {
+  const c = s / 2;
+  for (let i = 0; i < 14; i++) { const a = i / 14 * 6.28, d = 30 + Math.random() * 40, x = c + Math.cos(a) * d, y = c + Math.sin(a) * d, rad = 35 + Math.random() * 35;
+    const gr = g.createRadialGradient(x, y, 0, x, y, rad); gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.8, 'rgba(255,255,255,1)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = gr; g.beginPath(); g.arc(x, y, rad, 0, 7); g.fill(); }
+  const gr = g.createRadialGradient(c, c, 0, c, c, 70); gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(1, 'rgba(255,255,255,1)'); g.fillStyle = gr; g.beginPath(); g.arc(c, c, 60, 0, 7); g.fill();
+});
 const scorchTex = () => canvasTex(128, (g, s) => { const c = s / 2; const gr = g.createRadialGradient(c, c, 0, c, c, c); gr.addColorStop(0, 'rgba(5,5,5,0.95)'); gr.addColorStop(0.5, 'rgba(15,12,10,0.6)'); gr.addColorStop(1, 'rgba(20,20,20,0)'); g.fillStyle = gr; g.fillRect(0, 0, s, s); });
 
 const PVERT = `
@@ -105,6 +120,11 @@ export class Effects {
     this.holeMat = new THREE.MeshStandardMaterial({ map: this.tex.hole, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, roughness: 0.9 });
     this.scorchMat = new THREE.MeshStandardMaterial({ map: this.tex.scorch, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, roughness: 1 });
     this.decals = [];
+    // blood: wet, dark, slightly glossy decals
+    const bloodMat = t => new THREE.MeshStandardMaterial({ map: t, color: 0x5a0606, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, roughness: 0.25, metalness: 0.1, alphaTest: 0.02 });
+    this.splatMats = [1, 2, 3, 4].map(i => bloodMat(splatTex(i)));
+    this.poolMat = bloodMat(poolTex()); this.poolMat.color.set(0x3a0303); this.poolMat.roughness = 0.12;
+    this.pools = []; this.gore = 'full';
     // tracers
     this.tracers = [];
     this.tracerMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false }); this.tracerMat.color.setRGB(4, 3.2, 2);
@@ -160,12 +180,34 @@ export class Effects {
     if (!dirt || Math.random() < 0.5) this.decal(point, n, 0.07 + Math.random() * 0.03, this.holeMat);
   }
 
-  blood(point, dir) {
-    for (let i = 0; i < 8; i++) {
-      const v = dir.clone().multiplyScalar(1 + Math.random() * 2).add(new THREE.Vector3((Math.random() - 0.5) * 1.5, Math.random() * 1.2, (Math.random() - 0.5) * 1.5));
-      this.dust.spawn(point, v, { life: 0.35 + Math.random() * 0.3, size: 0.06, color: [0.35, 0.02, 0.02], alpha: 0.9, grav: 9 });
+  blood(point, dir, heavy = 1) {
+    if (this.gore === 'off') { for (let i = 0; i < 4; i++) this.dust.spawn(point, dir.clone().multiplyScalar(0.5).add(new THREE.Vector3((Math.random() - 0.5), Math.random(), (Math.random() - 0.5))), { life: 0.3, size: 0.05, color: [0.5, 0.5, 0.45], alpha: 0.7, grav: 6 }); return; }
+    const k = (this.gore === 'reduced' ? 0.4 : 1) * heavy;
+    const d = dir.clone().normalize();
+    // entry puff (back toward shooter) and exit spray (through the body)
+    for (let i = 0; i < 26 * k; i++) {
+      const exit = Math.random() < 0.7, dd = exit ? d : d.clone().negate();
+      const v = dd.clone().multiplyScalar((exit ? 2.5 : 1) + Math.random() * (exit ? 4 : 1.5)).add(new THREE.Vector3((Math.random() - 0.5) * 1.8, Math.random() * 1.5 - 0.2, (Math.random() - 0.5) * 1.8));
+      this.dust.spawn(point, v, { life: 0.4 + Math.random() * 0.5, size: 0.025 + Math.random() * 0.05, color: [0.32 + Math.random() * 0.1, 0.01, 0.01], alpha: 0.95, grav: 9.8, drag: 0.4 });
     }
-    this.smoke.spawn(point, dir.clone().multiplyScalar(0.5), { life: 0.5, size: 0.25, grow: 0.8, color: [0.4, 0.03, 0.03], alpha: 0.5, drag: 3 });
+    for (let i = 0; i < 4 * k; i++) this.smoke.spawn(point.clone().addScaledVector(d, 0.1 * i), d.clone().multiplyScalar(0.6 + Math.random() * 0.8).add(new THREE.Vector3(0, 0.1, 0)), { life: 0.6 + Math.random() * 0.4, size: 0.18 + Math.random() * 0.15, grow: 0.9, color: [0.45, 0.02, 0.02], alpha: 0.55, drag: 3.5, spin: 1 });
+    if (!this.world) return;
+    // splatter on whatever is behind the target
+    const h = this.world.raycast(point.clone().addScaledVector(d, 0.25), d, 3.2);
+    if (h) this.decal(h.point, h.normal, (0.45 + Math.random() * 0.5) * (0.7 + heavy * 0.3) * (1 - h.dist / 5), this.splatMats[(Math.random() * 4) | 0]);
+    // drips on the ground
+    if (Math.random() < 0.8 * k) {
+      const gp = point.clone().addScaledVector(d, 0.3 + Math.random() * 1.2); gp.y = (this.world.groundY || 0) + 0.006;
+      this.decal(gp, new THREE.Vector3(0, 1, 0), 0.15 + Math.random() * 0.3, this.splatMats[(Math.random() * 4) | 0]);
+    }
+  }
+
+  bloodPool(pos) {
+    if (this.gore === 'off') return;
+    const d = new THREE.Mesh(this.decalGeo, this.poolMat);
+    d.rotation.x = -Math.PI / 2; d.rotation.z = Math.random() * 6.28; d.position.set(pos.x, pos.y + 0.008, pos.z);
+    d.scale.setScalar(0.15); d.receiveShadow = true; d.userData.grow = (this.gore === 'reduced' ? 0.7 : 1.3) + Math.random() * 0.5;
+    this.scene.add(d); this.pools.push(d); this.decals.push(d);
   }
 
   decal(point, normal, size, mat) {
@@ -176,7 +218,7 @@ export class Effects {
     d.scale.setScalar(size);
     d.receiveShadow = true;
     this.scene.add(d); this.decals.push(d);
-    if (this.decals.length > 160) { const o = this.decals.shift(); this.scene.remove(o); }
+    if (this.decals.length > 260) { const o = this.decals.shift(); this.scene.remove(o); }
   }
 
   explosion(pos, big = 1) {
@@ -211,6 +253,7 @@ export class Effects {
   }
 
   update(dt, cam) {
+    for (let i = this.pools.length - 1; i >= 0; i--) { const p = this.pools[i]; if (!p.parent) { this.pools.splice(i, 1); continue; } const sc = p.scale.x + dt * 0.4 * (p.userData.grow - p.scale.x + 0.05); p.scale.setScalar(sc); if (sc >= p.userData.grow) this.pools.splice(i, 1); }
     this.add.update(dt); this.smoke.update(dt); this.dust.update(dt);
     const scale = window.innerHeight * 0.9;
     for (const s of [this.add, this.smoke, this.dust]) s.mat.uniforms.uScale.value = scale / Math.tan(THREE.MathUtils.degToRad(cam.fov / 2)) * 0.5;

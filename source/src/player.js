@@ -15,7 +15,7 @@ export class Player {
     this.eye = 1.65; this.height = 1.8;
     this.onGround = true; this.crouch = false; this.sprint = false; this.slide = 0;
     this.maxHealth = 100; this.health = 100; this.lastHit = 0; this.alive = true;
-    this.recoil = { p: 0, y: 0 }; this.shake = 0; this.bobT = 0; this.stepDist = 0;
+    this.recoil = { p: 0, y: 0 }; this.shake = 0; this.bobT = 0; this.stepDist = 0; this.moveAmount = 0;
     this.weapons = []; this.cur = 0; this.switchT = 0; this.pendingSwitch = -1;
     this.ads = 0; this.reloadT = 0; this.reloading = false; this.fireCd = 0; this.cycleT = 0; this.boltPending = false;
     this.bloom = 0; this.sway = V(); this.swayVel = V(); this.kick = 0; this.kickRot = 0;
@@ -62,6 +62,7 @@ export class Player {
     this.health -= amount; this.lastHit = this.time; this.damageFlash = Math.min(1, this.damageFlash + amount / 60);
     this.shake = Math.min(1, this.shake + amount / 80);
     if (fromPos) this.G.hud.damageDir(fromPos, this);
+    if (amount > 6) this.G.hud.bloodScreen(amount);
     audio.play('hurt', { vol: 0.6 });
     if (this.health <= 0) { this.health = 0; this.alive = false; this.G.onPlayerDeath(); }
   }

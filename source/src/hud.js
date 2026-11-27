@@ -20,6 +20,10 @@ export class HUD {
       <div id="feed"></div>
       <div id="interact"><div class="lbl"></div><div class="bar"><div></div></div></div>
       <div id="toast"></div>
+      <div id="radio"><div class="who"></div><div class="txt"></div></div>
+      <div id="lives"></div>
+      <div id="shout"></div>
+      <div id="bloodscr"></div>
       <div id="pickmsg"></div>
       <div id="nade"><div class="ic">💣</div></div>
       <div id="scope"><div class="mask"></div><div class="lines"></div><div class="breath"></div></div>
@@ -55,6 +59,27 @@ export class HUD {
     this.feed.prepend(d); setTimeout(() => d.remove(), 2200);
   }
   pickupMsg(text) { const d = document.createElement('div'); d.textContent = text; const el = document.getElementById('pickmsg'); el.appendChild(d); setTimeout(() => d.remove(), 1600); }
+  radio(name, text, who) {
+    const el = document.getElementById('radio');
+    el.querySelector('.who').textContent = name; el.querySelector('.txt').textContent = text;
+    el.className = 'on ' + (who === 'RASK' ? 'enemy' : '');
+    clearTimeout(this._rt); this._rt = setTimeout(() => el.className = '', 2500 + text.length * 55);
+  }
+  enemyShout(line) { const el = document.getElementById('shout'); el.textContent = '"' + line + '"'; el.style.opacity = 1; clearTimeout(this._st); this._st = setTimeout(() => el.style.opacity = 0, 1600); }
+  setLives(n, max) {
+    const el = document.getElementById('lives');
+    if (n == null) { el.innerHTML = ''; return; }
+    el.innerHTML = `<span class="lbl">LIVES</span>` + Array.from({ length: max }, (_, i) => `<i class="${i < n ? 'on' : ''}"></i>`).join('');
+  }
+  bloodScreen(amount) {
+    const el = document.getElementById('bloodscr'); if (!el || this.gore === 'off') return;
+    const d = document.createElement('div'); d.className = 'bs';
+    const side = Math.random();
+    d.style.left = (side < 0.5 ? Math.random() * 25 : 75 + Math.random() * 20) + '%'; d.style.top = (Math.random() * 80) + '%';
+    const sz = 120 + Math.random() * 220 * Math.min(1, amount / 30); d.style.width = d.style.height = sz + 'px';
+    d.style.transform = `translate(-50%,-50%) rotate(${Math.random() * 360}deg)`;
+    el.appendChild(d); setTimeout(() => d.classList.add('fade'), 60); setTimeout(() => d.remove(), 3200);
+  }
   toast(text, t = 1.5) { this.toastEl.textContent = text; this.toastEl.style.opacity = 1; clearTimeout(this._tt); this._tt = setTimeout(() => this.toastEl.style.opacity = 0, t * 1000); }
   showHint(text, t = 6) { this.hint.innerHTML = text; this.hint.style.opacity = 1; clearTimeout(this._ht); this._ht = setTimeout(() => this.hint.style.opacity = 0, t * 1000); }
 

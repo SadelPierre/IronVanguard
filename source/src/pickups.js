@@ -6,7 +6,7 @@ import { audio } from './audio.js';
 import { keyName } from './input.js';
 
 const V = (x = 0, y = 0, z = 0) => new THREE.Vector3(x, y, z);
-const COLORS = { ammo: 0xffd34d, grenade: 0xff8a3d, weapon: 0xe8f2ff, supply: 0x7dff9a };
+const COLORS = { ammo: 0xffd34d, grenade: 0xff8a3d, weapon: 0xe8f2ff, supply: 0x7dff9a, dogtag: 0xc8e6ff };
 
 export class Pickups {
   constructor(G) {
@@ -33,6 +33,11 @@ export class Pickups {
     if (type === 'ammo') { model = this.ammoModel.clone(true); model.scale.setScalar(1.4); }
     else if (type === 'grenade') model = this.nadeModel.clone(true);
     else if (type === 'supply') { model = this.crateModel.clone(true); model.scale.setScalar(0.8); }
+    else if (type === 'dogtag') {
+      model = new THREE.Group(); const m = new THREE.MeshStandardMaterial({ color: 0xd8dde2, metalness: 1, roughness: 0.25 });
+      for (const [dx, r] of [[-0.012, 0.15], [0.012, -0.2]]) { const t = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.075, 0.004), m); t.position.set(dx, 0.25, 0); t.rotation.z = r; model.add(t); }
+      const chain = new THREE.Mesh(new THREE.TorusGeometry(0.06, 0.003, 4, 24), m); chain.position.y = 0.32; model.add(chain);
+    }
     else if (type === 'weapon') {
       model = this.G.enemies.rifleTemplate.clone(true);
       model.rotation.set(0, Math.random() * 6.28, Math.PI / 2); model.position.y = 0.06;
@@ -41,10 +46,10 @@ export class Pickups {
     g.add(model);
     const glow = new THREE.Sprite(this.glowMat[type]); glow.scale.setScalar(type === 'supply' ? 2.2 : 1.1); glow.position.y = 0.25; g.add(glow);
     this.G.scene.add(g);
-    const p = { type, g, model, glow, pos: g.position, data, t: Math.random() * 6, life: type === 'supply' ? Infinity : 90, cooldown: 0 };
+    const p = { type, g, model, glow, pos: g.position, data, t: Math.random() * 6, life: type === 'supply' || type === 'dogtag' ? Infinity : 90, cooldown: 0 };
     this.list.push(p);
     // cap loose drops
-    const loose = this.list.filter(q => q.type !== 'supply');
+    const loose = this.list.filter(q => q.type !== 'supply' && q.type !== 'dogtag');
     if (loose.length > 40) this.remove(loose[0]);
     return p;
   }
@@ -72,12 +77,14 @@ export class Pickups {
       const p = this.list[i];
       p.t += dt; p.life -= dt; p.cooldown = Math.max(0, p.cooldown - dt);
       if (p.life <= 0) { this.remove(p); continue; }
-      if (p.type !== 'weapon' && p.type !== 'supply') { p.model.rotation.y += dt * 1.2; p.model.position.y = 0.08 + Math.sin(p.t * 2.5) * 0.04; }
+      if (p.type !== 'weapon' && p.type !== 'supply') {
+        if (p.type === 'dogtag') p.model.rotation.y += dt * 1.5; p.model.rotation.y += dt * 1.2; p.model.position.y = 0.08 + Math.sin(p.t * 2.5) * 0.04; }
       p.glow.material.opacity = (p.type === 'supply' && p.cooldown > 0) ? 0.1 : 0.4 + Math.sin(p.t * 3) * 0.15;
       if (!P.alive) continue;
       const d = Math.hypot(P.pos.x - p.pos.x, P.pos.z - p.pos.z);
       if (Math.abs(P.pos.y - p.pos.y) > 1.6) continue;
       // auto-collect small items
+      if (d < 1.2 && p.type === 'dogtag') { this.remove(p); G.collectDogTag(); continue; }
       if (d < 1.3 && p.type === 'ammo' && this.canUseAmmo(P)) {
         for (const w of P.weapons) w.reserve = Math.min(Math.floor(w.st.reserve * 1.5), w.reserve + w.st.mag * (w.st.pellets ? 2 : 1));
         audio.play('magIn', { vol: 0.7 }); G.hud.pickupMsg('+ AMMO'); this.remove(p); continue;

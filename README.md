@@ -18,6 +18,21 @@ You don't need to install anything or run a web server. Keep the `assets` folder
 - **Operation Midnight:** Wet reflective streets, roller shutters, AC units, security lights, hydrants and trash cans.
 - **Everywhere:** Height fog that glows toward the sun (aerial perspective), a more detailed M4 and brighter gun materials so weapons read as metal and polymer.
 
+## Campaign: Black Tide (Ironman)
+- **NEW CAMPAIGN** starts the story. Your lives carry across every mission: Recruit 9, Regular 7, Hardened 5, Veteran 3.
+- Every death costs a life, and you respawn at your last checkpoint. **Lose your last life and it's Game Over.** The campaign resets to Mission 1, and your run goes into the **Hall of Fame**.
+- Earn lives back (up to your maximum) by finishing a mission without dying, or by finding the hidden **dog tag** in each level.
+- **MISSION SELECT** replays any mission for practice, with no lives at risk. **Last Stand** is a bonus mode.
+- The story is told through briefings and radio chatter, with subtitles and spoken voices from your browser's built-in text-to-speech. You can switch the voices off in Settings.
+
+## Realism
+- Enemies fall as **physics ragdolls** pushed by the shot or blast that killed them.
+- Realistic **blood**: entry and exit sprays, splatter on walls behind targets, drips, and pools under bodies. You can reduce it or turn it off in Settings → Blood & gore.
+- Smarter enemies: they reload, lay down suppressing fire, flank you, push when you reload, fall back when losing, shout callouts and sometimes throw your grenades back.
+
+## Analytics
+The hosted site supports **Vercel Web Analytics**. Enable it once in Vercel → project *ironvanguard* → Analytics. It also supports **Google Analytics 4**: set `window.IV_GA_ID` in `source/src/index.html`. Gameplay events are tracked too: campaign starts, mission starts, deaths, completions and Game Overs. Nothing is tracked when you open the game from your folder.
+
 ## Missions
 | # | Mission | Setting | Objectives |
 |---|---------|---------|------------|

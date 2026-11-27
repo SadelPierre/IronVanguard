@@ -4,6 +4,7 @@ import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { loadModel } from './assets.js';
 import { buildThirdPersonRifle } from './weapons.js';
 import { audio } from './audio.js';
+import { Ragdoll } from './ragdoll.js';
 
 const V = (x = 0, y = 0, z = 0) => new THREE.Vector3(x, y, z);
 const _a = V(), _b = V(), _c = V(), _t = V(), _q = new THREE.Quaternion(), _q2 = new THREE.Quaternion(), _q3 = new THREE.Quaternion();
@@ -135,6 +136,7 @@ export class Enemy {
     this.path = null; this.pathIdx = 0; this.repathT = 0; this.moveTarget = null;
     this.strafe = Math.random() < 0.5 ? -1 : 1; this.strafeT = 0;
     this.grenadeCd = 10 + Math.random() * 15; this.stun = 0;
+    this.mag = 30; this.reloadT = 0; this.role = 'rifle'; this.flankT = 0; this.suppressT = 0;
     this.friendly = !!opts.friendly; this.hostage = !!opts.hostage; this.follow = false;
     this.zone = opts.zone || null; this.tag = opts.tag || null;
     this.aimPitch = 0; this.aimBlend = 0; this.deathT = 0;
@@ -281,41 +283,63 @@ export class Enemy {
     return { enemy: this, dist: best.t, part: best.part, point: o.clone().addScaledVector(d, best.t) };
   }
 
-  takeDamage(dmg, dir) {
+  takeDamage(dmg, dir, hit = null) {
     if (!this.alive) return false;
     this.hp -= dmg;
     // getting shot = instant awareness
     this.awareness = 1; this.lastSeen = this.G.player.pos.clone(); this.lastSeenT = this.G.time;
     if (this.state !== 'combat') { this.state = 'combat'; this.react = 0.25; }
     this.flinch = 0.25;
-    if (this.hp <= 0) { this.die(dir); return true; }
+    if (this.hp <= 0) { this.die(dir, hit); return true; }
     return false;
   }
 
-  die(dir) {
+  // hit = { point, force (m/s), explosion: bool }
+  die(dir, hit = null) {
     this.alive = false; this.state = 'dead'; this.deathT = 0;
     try { this.mgr.onDeath?.(this); } catch (e) { console.warn(e); }
-    this.deathDir = dir ? Math.atan2(dir.x, dir.z) : this.bodyYaw;
-    this.deathFall = V(dir?.x || 0, 0, dir?.z || 0).normalize();
-    if (this.rifle) { this.rifleVel = V(this.deathFall.x * 1.5, 1.5, this.deathFall.z * 1.5); this.rifleSpin = V(Math.random() * 4, Math.random() * 4, 0); }
+    const mate = this.mgr.list.find(o => o !== this && o.alive && !o.hostage && o.pos.distanceTo(this.pos) < 18); if (mate && Math.random() < 0.6) setTimeout(() => this.mgr.shout(mate, 'down'), 500);
+    const d = dir ? dir.clone().normalize() : V(-Math.sin(this.bodyYaw), 0, -Math.cos(this.bodyYaw)).negate();
+    this.deathFall = V(d.x, 0, d.z).normalize();
+    try {
+      this.model.updateMatrixWorld(true);
+      this.ragdoll = new Ragdoll(this.model, this.G.world);
+      // carry the body's running momentum, then apply the killing blow
+      this.ragdoll.push(null, V(this.vel.x, 0, this.vel.z), 1);
+      const force = hit?.force ?? 3.5;
+      if (hit?.explosion) {
+        this.ragdoll.push(null, d.clone().multiplyScalar(force * 0.8).add(V(0, force * 0.35, 0)), 1);
+        this.ragdoll.push('chest', V((Math.random() - 0.5) * 3, 2, (Math.random() - 0.5) * 3), 0.2);
+      } else {
+        const j = hit?.point ? this.ragdoll.nearestJoint(hit.point) : 'chest';
+        this.ragdoll.push(j, d.clone().multiplyScalar(force * 1.6), 0.18);
+        // legs buckle
+        this.ragdoll.push('lKnee', V(0, 0, 0).addScaledVector(d, 0.8), 0); this.ragdoll.push('rKnee', V(0, 0, 0).addScaledVector(d, 0.8), 0);
+      }
+    } catch (e) { console.warn('ragdoll failed', e); this.ragdoll = null; }
+    if (this.rifle) { this.rifleVel = V(this.deathFall.x * 1.5 + (Math.random() - 0.5), 1.8, this.deathFall.z * 1.5 + (Math.random() - 0.5)); this.rifleSpin = V(Math.random() * 6, Math.random() * 6, 0); }
   }
 
   updateDeath(dt) {
     this.deathT += dt;
-    const t = Math.min(1, this.deathT / 0.6), e = t * t;
-    // crumple: knees then fall in hit direction
-    const m = this.model;
-    const axis = V(-this.deathFall.z, 0, this.deathFall.x); if (axis.lengthSq() < 0.01) axis.set(1, 0, 0);
-    m.quaternion.setFromAxisAngle(axis.normalize(), e * Math.PI / 2 * 0.98);
-    m.quaternion.multiply(_q.setFromEuler(new THREE.Euler(0, this.bodyYaw, 0)));
-    m.position.copy(this.pos).add(V(0, 0.12 * Math.sin(t * Math.PI), 0)).addScaledVector(this.deathFall, e * 0.25);
-    if (this.b.Spine1 && t < 1) { this.b.Spine1.rotation.x += dt * 0.6; }
-    if (this.b.LeftUpLeg && t < 1) { this.b.LeftUpLeg.rotation.x -= dt * 1.2; this.b.LeftLeg = this.b.LeftLeg; }
-    m.updateMatrixWorld(true);
+    if (this.ragdoll) {
+      this.ragdoll.update(dt);
+      // blood pool spreads under the body once it settles
+      if (!this.pooled && this.deathT > 0.9 && this.G.effects.bloodPool) {
+        this.pooled = true; const c = this.ragdoll.center();
+        this.G.effects.bloodPool(V(c.x, this.groundY ?? 0, c.z));
+      }
+    } else {
+      const t = Math.min(1, this.deathT / 0.6), e = t * t, m = this.model;
+      const axis = V(-this.deathFall.z, 0, this.deathFall.x); if (axis.lengthSq() < 0.01) axis.set(1, 0, 0);
+      m.quaternion.setFromAxisAngle(axis.normalize(), e * Math.PI / 2 * 0.98);
+      m.quaternion.multiply(_q.setFromEuler(new THREE.Euler(0, this.bodyYaw, 0)));
+      m.updateMatrixWorld(true);
+    }
     if (this.rifle && this.rifleVel) {
       this.rifleVel.y -= 9.8 * dt; this.rifle.position.addScaledVector(this.rifleVel, dt);
       this.rifle.rotation.x += this.rifleSpin.x * dt; this.rifle.rotation.z += this.rifleSpin.y * dt;
-      if (this.rifle.position.y < this.groundY + 0.05) { this.rifle.position.y = this.groundY + 0.05; this.rifleVel = null; this.rifle.rotation.set(0, this.rifle.rotation.y, Math.PI / 2); }
+      if (this.rifle.position.y < (this.groundY ?? 0) + 0.05) { this.rifle.position.y = (this.groundY ?? 0) + 0.05; this.rifleVel = null; this.rifle.rotation.set(0, this.rifle.rotation.y, Math.PI / 2); }
     }
   }
 
@@ -374,7 +398,12 @@ export class Enemy {
         this.crouched = this.preferCrouch && !moveDir;
         // shoot
         this.react -= dt;
-        if (this.react <= 0) this.shootLogic(dt, dist);
+        if (this.reloadT > 0) {
+          this.reloadT -= dt; if (this.reloadT <= 0) this.mag = 30;
+          if (!this.coverTarget && !this.holdPosition && !this._relCover) { this._relCover = true; this.pickCover(P.pos); }
+        } else { this._relCover = false; if (this.react <= 0) this.shootLogic(dt, dist); }
+        // the player is reloading or exposed nearby: push
+        if (P.reloading && dist < 22 && dist > 5 && !this.holdPosition && this.reloadT <= 0) { this.advance = 1; if (!this._pushCalled) { this._pushCalled = true; this.mgr.shout(this, 'push'); } } else if (!P.reloading) this._pushCalled = false;
         // occasionally relocate to cover when hurt
         if (this.hp < D.hp * 0.45 && !this.coverTarget && !this.holdPosition) this.pickCover(P.pos);
       } else {
@@ -385,7 +414,17 @@ export class Enemy {
         if (this.grenadeCd <= 0 && since > 2 && since < 8 && this.lastSeen && this.pos.distanceTo(this.lastSeen) < 25 && this.pos.distanceTo(this.lastSeen) > 8) {
           this.grenadeCd = 18 + Math.random() * 15; this.throwGrenade(this.lastSeen);
         }
-        if (this.lastSeen && !this.holdPosition) {
+        // suppressive fire at the player's last known position (keeps them pinned behind cover)
+        if (this.lastSeen && since < 5 && since > 0.6 && this.role !== 'flank' && this.reloadT <= 0 && this.pos.distanceTo(this.lastSeen) < 45) {
+          this.suppressT -= dt;
+          if (this.suppressT <= 0) { this.suppressT = 1.6 + Math.random() * 2.2; this.suppress(this.lastSeen); }
+          this.faceTo(this.lastSeen, dt, 6); wantAim = 1;
+          if (!this.holdPosition && this.role === 'rifle' && since < 3) { /* hold and suppress */ }
+        }
+        if (this.role === 'flank' && this.flankPos && !this.holdPosition) {
+          if (this.pos.distanceTo(this.flankPos) > 1.5) { moveDir = this.followPath(this.flankPos, dt); desiredSpeed = 4.2; }
+          else { this.role = 'rifle'; this.flankPos = null; this.lastSeen = P.pos.clone(); }
+        } else if (this.lastSeen && !this.holdPosition && !(since < 3 && this.role === 'rifle' && this.pos.distanceTo(this.lastSeen) < 30 && Math.random() < 0.985)) {
           if (this.pos.distanceTo(this.lastSeen) > 2.5) { moveDir = this.followPath(this.lastSeen, dt); desiredSpeed = since > 4 ? 3.2 : 2.2; this.faceTo(this.lastSeen, dt, 5); }
           else if (since > 12) { this.state = 'alert'; this.investigate = null; this.alertT = 8; }
         } else if (this.lastSeen) this.faceTo(this.lastSeen, dt, 5);
@@ -454,6 +493,7 @@ export class Enemy {
     if (this.fireCd > 0) return;
     if (this.burst <= 0) { this.burst = 2 + ((Math.random() * 4) | 0); }
     this.burst--;
+    if (--this.mag <= 0) { this.reloadT = 2.4 + Math.random() * 0.8; this.burst = 0; this.mgr.shout(this, 'reload'); audio.play('magOut', { pos: this.pos, vol: 0.6 }); }
     this.fireCd = this.burst > 0 ? 0.1 + Math.random() * 0.03 : 0.5 + Math.random() * 0.9;
     if (dist > 110) return;
     // hit chance
@@ -482,6 +522,22 @@ export class Enemy {
     }
   }
 
+  // fire a burst at a remembered position (misses into the player's cover)
+  suppress(at) {
+    const G = this.G, muzzle = this.muzzleWorld();
+    const n = 2 + ((Math.random() * 3) | 0);
+    for (let k = 0; k < n; k++) setTimeout(() => {
+      if (!this.alive || this.stun > 0) return;
+      const tgt = at.clone().add(V((Math.random() - 0.5) * 2, 0.6 + Math.random() * 1.2, (Math.random() - 0.5) * 2));
+      const m = this.muzzleWorld(), dir = tgt.clone().sub(m).normalize();
+      G.effects.muzzleWorld(m, dir, 0.8); audio.shot(this.mgr.weaponSound || 'ak', m, false);
+      const hit = G.world.raycast(m, dir, 120);
+      if (hit) { G.effects.impact(hit.point, hit.normal, hit.mat); if (hit.point.distanceTo(G.player.pos) < 6) { audio.play('hit_concrete', { pos: hit.point, vol: 0.7 }); G.player.shake = Math.min(1, G.player.shake + 0.05); G.hud.suppress(); } }
+      if (Math.random() < 0.4) G.effects.tracer(m, hit ? hit.point : tgt);
+      if (--this.mag <= 0) { this.reloadT = 2.6; this.mgr.shout(this, 'reload'); }
+    }, k * 110);
+  }
+
   muzzleWorld() {
     if (this.rifle) { this.rifle.updateMatrixWorld(true); return V(0, 0.03, -0.78).applyMatrix4(this.rifle.matrixWorld); }
     return this.pos.clone().add(V(0, 1.4, 0));
@@ -492,7 +548,7 @@ export class Enemy {
     const d = target.clone().sub(from); const flat = Math.hypot(d.x, d.z);
     const t = Math.max(0.8, flat / 13);
     const v = V(d.x / t, (d.y + 0.5 * 20 * t * t * 0.5) / t, d.z / t);
-    this.G.spawnGrenade('frag', from, v, false);
+    this.G.spawnGrenade('frag', from, v, false); this.mgr.shout(this, 'grenade');
     this.G.hud.grenadeWarning();
   }
 
@@ -568,7 +624,7 @@ export class EnemyManager {
   }
   spawn(opts) { const e = new Enemy(this, opts); this.list.push(e); return e; }
   get alive() { return this.list.filter(e => e.alive && !e.hostage && !e.friendly); }
-  update(dt) { for (const e of this.list) e.update(dt); }
+  update(dt) { for (const e of this.list) e.update(dt); this.tactics(dt); }
   raycast(o, d, maxDist) {
     let best = null;
     for (const e of this.list) { if (e.hostage && !this.G.hitHostages) { const h = e.raycast(o, d, maxDist); if (h && (!best || h.dist < best.dist)) best = h; continue; } const h = e.raycast(o, d, maxDist); if (h && (!best || h.dist < best.dist)) best = h; }
@@ -590,7 +646,54 @@ export class EnemyManager {
       }
     }
   }
+  shout(src, kind) {
+    const G = this.G; if (!src.alive || G.settings.voices === false) return;
+    const now = G.time; if (now - (this._lastShout || -9) < 3.5) return;
+    if (src.pos.distanceTo(G.player.pos) > 32) return;
+    const L = { contact: ['Contact!', 'Enemy spotted!', 'There he is!'], reload: ['Reloading!', 'Changing mag!', 'Cover me, reloading!'], flank: ['Flank him!', 'Go around the side!', 'Move left, move left!'], grenade: ['Grenade!', 'Frag out!', 'Get down!'], down: ['Man down!', 'We lost one!', 'He got Petrov!'], push: ['He\'s reloading, push!', 'Push now!', 'Move up!'], back: ['Fall back!', 'Pull back to cover!'] }[kind];
+    if (!L) return; this._lastShout = now;
+    const line = L[(Math.random() * L.length) | 0];
+    G.hud.enemyShout?.(line);
+    try { const S = window.speechSynthesis; if (S && !S.speaking) { const u = new SpeechSynthesisUtterance(line); const vs = S.getVoices().filter(v => /^en/i.test(v.lang)); u.voice = vs.find(v => /male|david|mark|guy|george/i.test(v.name)) || vs[0] || null; u.pitch = 0.6 + Math.random() * 0.25; u.rate = 1.15; u.volume = Math.max(0.15, 1 - src.pos.distanceTo(G.player.pos) / 32) * 0.8; S.speak(u); } } catch (e) {}
+  }
+
+  // squad brain: runs a few times per second
+  tactics(dt) {
+    const G = this.G, P = G.player;
+    this._tT = (this._tT || 0) - dt; if (this._tT > 0) return; this._tT = 0.5;
+    const fighters = this.list.filter(e => e.alive && !e.hostage && !e.friendly && e.state === 'combat' && e.pos.distanceTo(P.pos) < 60);
+    // send one flanker at a time when 3+ enemies are engaged and the player is dug in
+    this._flankCd = (this._flankCd || 6) - 0.5;
+    if (fighters.length >= 3 && this._flankCd <= 0 && !fighters.some(e => e.role === 'flank')) {
+      const c = fighters.filter(e => !e.holdPosition && e.reloadT <= 0).sort((a, b) => a.pos.distanceTo(P.pos) - b.pos.distanceTo(P.pos))[1];
+      if (c) {
+        const to = V(c.pos.x - P.pos.x, 0, c.pos.z - P.pos.z).normalize(); const side = Math.random() < 0.5 ? 1 : -1;
+        const flank = P.pos.clone().add(V(-to.z * side, 0, to.x * side).multiplyScalar(11)).addScaledVector(to, 3);
+        const [fx, fz] = G.world.navCell(flank), f = G.world.nearestFree(fx, fz);
+        if (f) { c.role = 'flank'; c.flankPos = G.world.cellPos(f[0], f[1]); this.shout(c, 'flank'); this._flankCd = 14 + Math.random() * 8; }
+      }
+    }
+    // morale: if the squad is getting wrecked, the wounded fall back
+    const dead = this.list.filter(e => !e.alive && !e.hostage && e.pos.distanceTo(P.pos) < 40).length;
+    if (dead >= 3 && fighters.length && dead > fighters.length) for (const e of fighters) if (e.hp < G.diff.hp * 0.6 && !e.coverTarget && !e.holdPosition && Math.random() < 0.3) { e.pickCover(P.pos); this.shout(e, 'back'); }
+    // throw back the player's grenades
+    for (const g of G.grenades) {
+      if (!g.byPlayer || g.type !== 'frag' || g.thrownBack || g.fuse < 1.2 || !g.stuck) continue;
+      const e = this.list.find(x => x.alive && !x.hostage && x.stun <= 0 && x.pos.distanceTo(g.pos) < 2.6);
+      if (e && Math.random() < 0.35) {
+        g.thrownBack = true; this.shout(e, 'grenade');
+        setTimeout(() => {
+          if (!e.alive || !G.grenades.includes(g)) return;
+          const from = e.pos.clone().add(V(0, 1.6, 0)), d = P.pos.clone().sub(from); const flat = Math.hypot(d.x, d.z), t = Math.max(0.7, flat / 13);
+          g.pos.copy(from); g.vel.set(d.x / t, (d.y + 7.5 * t * t) / t, d.z / t); g.stuck = false; g.byPlayer = false; g.fuse = Math.max(g.fuse, 1.2);
+          G.hud.toast('GRENADE THROWN BACK!', 1.5);
+        }, 500);
+      }
+    }
+  }
+
   callout(src) {
+    this.shout(src, 'contact');
     // squad mates nearby are told where the player is
     for (const e of this.list) if (e !== src && e.alive && !e.hostage && e.pos.distanceTo(src.pos) < 25 && e.state !== 'combat') {
       e.state = 'alert'; e.investigate = this.G.player.pos.clone(); e.awareness = Math.max(e.awareness, 0.7);

@@ -197,10 +197,19 @@ async function desertVillage(G, M) {
 export const LEVELS = [
   {
     id: 'bootcamp', name: 'BOOT CAMP', location: 'Camp Hornet, Nevada', time: '09:20 Local', reverb: 'outdoor',
-    briefing: 'Before you deploy, prove you can handle your loadout. Run the qualification course: hip-fire, long-range marksmanship, grenade handling and close-quarters clearing. The clock is running, soldier.',
+    briefing: 'Sgt. Reyes, welcome back to the 1st Vanguard Battalion. Colonel Kessler wants every operator requalified before the Al-Qadir deployment: hip-fire, long-range marksmanship, grenades and close-quarters clearing. Sgt. Okafor is running the course. Somewhere out there a man called The Jackal is buying weapons with money that isn\'t his. You leave tomorrow.',
+    dogtag: V(10.6, 0, -53.6),
+    radio: [
+      { at: 0, who: 'OKAFOR', text: 'Morning, Ghost. Kessler wants you requalified before wheels-up. Let\'s make it quick.', delay: 2.5 },
+      { at: 1, who: 'OKAFOR', text: 'Lane one. Don\'t overthink it, just put rounds on steel.' },
+      { at: 3, who: 'VOSS', text: 'Long targets are mine to grade. Breathe out, then squeeze.' },
+      { at: 5, who: 'OKAFOR', text: 'Grenade in the pit. Cook it, throw it, get down.' },
+      { at: 7, who: 'OKAFOR', text: 'Shoot house. Check your corners and use the knife if they get close.' },
+      { at: 8, who: 'KESSLER', text: 'Good work, Sergeant. You ship out at dawn. Al-Qadir Province.' },
+    ],
     objectivesPreview: ['Hip-fire qualification', 'Long-range marksmanship', 'Grenade handling', 'Clear the shoot house', 'Sprint to the finish'],
-    intro: ['BOOT CAMP', 'Camp Hornet, Nevada', 'Sgt. "Ghost" Reyes — 1st Vanguard Battalion', 'Day 1, 09:20'],
-    hint: 'Move: <b>WASD</b> &nbsp; Look: <b>Mouse/Arrows</b> &nbsp; Fire: <b>Click or E</b> &nbsp; Aim: <b>RMB or Z</b> &nbsp; Sprint: <b>Shift</b> &nbsp; Reload: <b>R</b>',
+    intro: ['ACT I — BOOT CAMP', 'Camp Hornet, Nevada', 'Sgt. "Ghost" Reyes — 1st Vanguard Battalion', 'Day 1, 09:20'],
+    hint: 'Move: <b>WASD</b> &nbsp; Look: <b>Mouse/Arrows</b> &nbsp; Fire: <b>Click or Enter</b> &nbsp; Aim: <b>RMB or Z</b> &nbsp; Sprint: <b>Shift</b> &nbsp; Reload: <b>R</b>',
     ambience: [['wind', 0.25]],
     async build(G, prog) {
       setupEnvironment(G, { hdri: 'kloofendal_48d_partly_cloudy_puresky', sunDir: V(-0.5, 0.9, 0.35), sunIntensity: 3.2, sunColor: 0xfff0dc, envIntensity: 0.9, fogColor: 0xbcd0e6, fogDensity: 0.0032, exposure: 1.0, skyTop: 0x2a5aa0, skyHorizon: 0xbfd2e4, clouds: 0.5, hemi: 0.2, groundColor: 0x5a6a40, grade: { saturation: 1.05 } });
@@ -266,9 +275,17 @@ export const LEVELS = [
   },
   {
     id: 'dustdevil', enemyWeapon: 'ak47', name: 'OPERATION DUST DEVIL', location: 'Al-Qadir Province', time: '13:05 Local', reverb: 'outdoor',
-    briefing: 'Insurgent commander "The Jackal" is coordinating attacks from a walled village in the desert. Infiltrate the village from the south, eliminate all hostile forces, and recover the intelligence laptop from his compound. Exfil by helicopter at the northern LZ.',
+    briefing: 'The insurgent commander known as The Jackal is running attacks out of a walled village in Al-Qadir Province. His fighters carry brand-new rifles nobody in this region can afford. Infiltrate from the south, clear the village, and pull the intelligence off the laptop in his compound. Somebody is paying for this war, and we want to know who. Exfil by helicopter at the northern LZ.',
+    dogtag: V(-31, 0, -11.5),
+    radio: [
+      { at: 0, who: 'KESSLER', text: 'Ghost, Kessler. Drone has eyes on the village. Use the wrecks for cover on your approach.', delay: 3 },
+      { at: 1, who: 'OKAFOR', text: 'You\'re inside the wall. Clear it house by house. Jackal\'s men will fight hard.' },
+      { at: 2, who: 'VOSS', text: 'Village is quiet. The laptop should be in the big compound to the north.' },
+      { at: 3, who: 'HAYES', text: 'Ghost, Hayes in intelligence. Those files... payments to a private military company. Black Tide.', delay: 1 },
+      { at: 3, who: 'KESSLER', text: 'Enemy reinforcements inbound. Get to the LZ now, and keep that intel safe.', delay: 7 },
+    ],
     objectivesPreview: ['Infiltrate the village', 'Eliminate hostile forces', 'Recover the intel', 'Reach the LZ for extraction'],
-    intro: ['OPERATION DUST DEVIL', 'Al-Qadir Province', 'Sgt. "Ghost" Reyes — 1st Vanguard Battalion', 'Day 4, 13:05'],
+    intro: ['ACT I — OPERATION DUST DEVIL', 'Al-Qadir Province', 'Sgt. "Ghost" Reyes — 1st Vanguard Battalion', 'Day 4, 13:05'],
     ambience: [['wind', 0.45]],
     async build(G, prog) {
       setupEnvironment(G, { hdri: 'qwantani_noon_puresky', sunDir: V(0.6, 0.78, 0.5), sunIntensity: 4.0, sunColor: 0xfff2dc, envIntensity: 1.0, fogColor: 0xd9cdb5, fogDensity: 0.005, exposure: 0.85, skyTop: 0x2d5c9c, skyHorizon: 0xe2d6c0, skyGround: 0xb39a78, clouds: 0.22, hemi: 0.25, groundColor: 0x9a7f5c, grade: { tint: 0xfff3e2, saturation: 1.0, contrast: 1.14 } });
@@ -308,9 +325,17 @@ export const LEVELS = [
   },
   {
     id: 'ironharbor', enemyWeapon: 'm4a1', name: 'OPERATION IRON HARBOR', location: 'Port of Kaliningrad Sector 9', time: '19:42 Local', reverb: 'urban',
-    briefing: 'Intel from the Jackal\'s laptop points to a weapons smuggling ring operating out of a dockyard. Two arms caches are hidden among the containers. Plant charges on both, get clear of the blast and fight your way to the extraction boat at the pier.',
+    briefing: 'The Jackal\'s laptop names Black Tide, a private army run by former General Viktor Rask. Rask is moving weapons through a Baltic dockyard, and the manifest lists more than rifles. Two arms caches are hidden among the containers. Plant charges on both, get clear of the blast and fight your way to the extraction boat at the pier. Rask\'s contractors are professionals. Expect them to flank.',
+    dogtag: V(60, 0, -27.5),
+    radio: [
+      { at: 0, who: 'KESSLER', text: 'Ghost, this is Black Tide\'s main supply hub. Plant both charges and get out.', delay: 3 },
+      { at: 1, who: 'VOSS', text: 'Alpha\'s rigged. Bravo is in the container yard to the west.' },
+      { at: 2, who: 'OKAFOR', text: 'Both charges set. Move, move, move! Fifteen seconds!' },
+      { at: 3, who: 'HAYES', text: 'Ghost... those crates were stamped for missile guidance kits. Rask is building something.', delay: 2 },
+      { at: 3, who: 'RASK', text: 'Vanguard. Your colonel told me you would come. Enjoy the swim.', delay: 9 },
+    ],
     objectivesPreview: ['Plant C4 on cache Alpha', 'Plant C4 on cache Bravo', 'Get clear before detonation', 'Fight to the extraction boat'],
-    intro: ['OPERATION IRON HARBOR', 'Port Sector 9, Baltic Coast', 'Sgt. "Ghost" Reyes — 1st Vanguard Battalion', 'Day 6, 19:42'],
+    intro: ['ACT II — OPERATION IRON HARBOR', 'Port Sector 9, Baltic Coast', 'Sgt. "Ghost" Reyes — 1st Vanguard Battalion', 'Day 6, 19:42'],
     ambience: [['waves', 0.35], ['wind', 0.2]],
     async build(G, prog) {
       setupEnvironment(G, { hdri: 'belfast_sunset_puresky', sunDir: V(-1, 0.16, -0.35), sunIntensity: 3.6, sunColor: 0xffb070, envIntensity: 0.9, fogColor: 0xa08878, fogDensity: 0.0065, exposure: 1.0, skyTop: 0x3b4f78, skyHorizon: 0xf0a070, skyGround: 0x40362f, clouds: 0.55, cloudColor: 0xffd0b0, skyBright: 1.2, hemi: 0.2, skyColor: 0xffc49a, groundColor: 0x40362f, shadowExtent: 60, grade: { tint: 0xfff0e0, saturation: 1.05, contrast: 1.1 } });
@@ -440,9 +465,17 @@ export const LEVELS = [
   },
   {
     id: 'midnight', enemyWeapon: 'mp5', name: 'OPERATION MIDNIGHT', location: 'Old Town, Zagoria', time: '02:15 Local', night: true, reverb: 'urban',
-    briefing: 'A captured Vanguard intelligence officer, Lt. Hayes, is being held in a safehouse at the north end of Old Town. Move up the street under cover of darkness, clear the safehouse and free the hostage. Do NOT shoot the hostage. Escort Hayes back to the extraction vehicle. Night vision (N) and flashlight (T) are available.',
+    briefing: 'Three days after Iron Harbor, Lt. Hayes went dark. She was digging into how Rask knew we were coming. Black Tide snatched her and is holding her in a safehouse at the north end of Old Town. Move up the street under cover of darkness, clear the safehouse and free Hayes. Do NOT shoot the hostage. Escort her back to the extraction vehicle. Night vision (N) and flashlight (T) are available.',
+    dogtag: V(-28, 0, 10),
+    radio: [
+      { at: 0, who: 'OKAFOR', text: 'Ghost, Okafor. Streetlights are hot, so stay in the shadows. Night vision is on N.', delay: 3 },
+      { at: 1, who: 'VOSS', text: 'Thermal shows six inside the safehouse. Hayes is in the back room.' },
+      { at: 2, who: 'HAYES', text: 'Ghost? Thank God. Get me out of these cuffs.' },
+      { at: 3, who: 'HAYES', text: 'Listen. Rask has a source in Vanguard Command, someone senior. They gave him our routes.', delay: 2 },
+      { at: 3, who: 'HAYES', text: 'Only three people had the Iron Harbor plan. One of them is Kessler.', delay: 9 },
+    ],
     objectivesPreview: ['Locate the safehouse', 'Clear the safehouse', 'Free Lt. Hayes', 'Escort Hayes to the vehicle'],
-    intro: ['OPERATION MIDNIGHT', 'Old Town, Zagoria', 'Sgt. "Ghost" Reyes — 1st Vanguard Battalion', 'Day 9, 02:15'],
+    intro: ['ACT III — OPERATION MIDNIGHT', 'Old Town, Zagoria', 'Sgt. "Ghost" Reyes — 1st Vanguard Battalion', 'Day 9, 02:15'],
     hint: 'Night vision: <b>N</b> &nbsp; Flashlight: <b>T</b> &nbsp; Lights give away your position.',
     ambience: [['crickets', 0.25], ['wind', 0.15]],
     async build(G, prog) {
@@ -545,7 +578,7 @@ export const LEVELS = [
     },
   },
   {
-    id: 'laststand', noSave: true, enemyWeapon: 'ak47', name: 'LAST STAND', location: 'Al-Qadir Province', time: '18:50 Local', reverb: 'outdoor',
+    id: 'laststand', bonus: true, noSave: true, enemyWeapon: 'ak47', name: 'LAST STAND', location: 'Al-Qadir Province', time: '18:50 Local', reverb: 'outdoor',
     briefing: 'Your extraction helicopter went down. Hold the village until the QRF arrives. Survive five waves of increasingly aggressive hostiles. Resupply ammunition at the crate in the courtyard.',
     objectivesPreview: ['Survive 5 waves', 'Resupply at the ammo crate'],
     intro: ['LAST STAND', 'Al-Qadir Province', 'Sgt. "Ghost" Reyes — 1st Vanguard Battalion', 'Day 4, 18:50'],
