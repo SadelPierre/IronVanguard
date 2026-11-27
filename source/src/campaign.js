@@ -24,10 +24,10 @@ export const STORY = [
   { id: 'angel', act: 1, title: 'Angel of Death' },
   { id: 'midnight', act: 2, title: 'Midnight' },
   { id: 'burnnotice', act: 2, title: 'Burn Notice' },
-  { id: 'blacktide', act: 2, title: 'Black Tide', soon: true },
-  { id: 'convoy', act: 3, title: 'Convoy', soon: true },
-  { id: 'skyfall', act: 3, title: 'Skyfall', soon: true },
-  { id: 'irondawn', act: 3, title: 'Iron Dawn', soon: true },
+  { id: 'blacktide', act: 2, title: 'Black Tide' },
+  { id: 'convoy', act: 3, title: 'Convoy' },
+  { id: 'skyfall', act: 3, title: 'Skyfall' },
+  { id: 'irondawn', act: 3, title: 'Iron Dawn' },
 ];
 
 export const CAST = {
@@ -87,6 +87,7 @@ export class Campaign {
     const prevAct = STORY.find(m => m.id === levelId)?.act;
     this.s.idx = cur + 1;
     const next = list[this.s.idx];
+    if (stats.ending) this.s.ending = stats.ending;
     if (!next) { out.finished = true; this.s.active = false; this.recordRun(true); }
     else { out.nextId = this.s.nextId = next.id; out.newAct = next.act !== prevAct ? ACTS[STORY.find(m => m.id === next.id).act] : null; }
     this.save();
@@ -95,7 +96,7 @@ export class Campaign {
   recordRun(won) {
     const hof = store.get('halloffame', []);
     const s = this.s, reached = playable()[Math.min(s.idx, playable().length - 1)]?.title || '';
-    hof.push({ won, difficulty: s.difficulty, missions: s.idx, reached, kills: s.kills, deaths: s.deaths, time: Math.round(s.time), date: Date.now() });
+    hof.push({ won, ending: won ? s.ending || null : null, difficulty: s.difficulty, missions: s.idx, reached, kills: s.kills, deaths: s.deaths, time: Math.round(s.time), date: Date.now() });
     hof.sort((a, b) => (b.won - a.won) || (b.missions - a.missions) || (b.kills - a.kills));
     store.set('halloffame', hof.slice(0, 10));
   }

@@ -812,6 +812,8 @@ export class EnemyManager {
   spawn(opts) { const e = new Enemy(this, opts); this.list.push(e); if (e.friendly) (this.allies ||= []).push(e); return e; }
   get alive() { return this.list.filter(e => e.alive && !e.hostage && !e.friendly); }
   update(dt) { for (const e of this.list) e.update(dt); this.tactics(dt); }
+  // cinematics: soldiers keep breathing/idling but don't think or shoot
+  animate(dt) { for (const e of this.list) { if (!e.alive) { e.syncModel(dt); continue; } e.vel.set(0, 0, 0); e.setAnim(dt, 0); e.syncModel(dt); } }
   raycast(o, d, maxDist) {
     let best = null;
     for (const e of this.list) { if (e.friendly) continue; if (e.hostage && !this.G.hitHostages) { const h = e.raycast(o, d, maxDist); if (h && (!best || h.dist < best.dist)) best = h; continue; } const h = e.raycast(o, d, maxDist); if (h && (!best || h.dist < best.dist)) best = h; }

@@ -4,6 +4,7 @@ import { Water } from 'three/examples/jsm/objects/Water.js';
 import { pbr, loadTexture } from './assets.js';
 import { setupEnvironment, terrain, building, wallOpen, containerMat, fbm } from './env.js';
 import { audio } from './audio.js';
+import { Skydive } from './skydive.js';
 import { ContainerYard, CONTAINER_COLORS, gantryCrane, quaySide, chainFence, roadPaint, addWetness, cargoShip, vehicleWreck, scatter } from './scenery.js';
 
 const V = (x = 0, y = 0, z = 0) => new THREE.Vector3(x, y, z);
@@ -90,6 +91,82 @@ function table(G, M, x, z, w = 1.4, d = 0.8) {
   G.world.box(x, 0.74, z, w, 0.05, d, M.wood, { texSize: 1.5 });
   for (const [dx, dz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) G.world.box(x + dx * (w / 2 - 0.06), 0, z + dz * (d / 2 - 0.06), 0.06, 0.74, 0.06, M.wood, { collide: false });
   G.world.addCollider(V(x - w / 2, 0, z - d / 2), V(x + w / 2, 0.79, z + d / 2), 'wood');
+}
+
+// ---------------------------------------------------------------- vehicles & aircraft (procedural)
+// Military vehicle facing local +Z. kind: 'apc' | 'truck' | 'technical'
+function convoyVehicle(G, kind) {
+  const g = new THREE.Group();
+  const paint = new THREE.MeshStandardMaterial({ color: kind === 'technical' ? 0xb8ab90 : 0x4d5440, roughness: 0.75, metalness: 0.25 });
+  const dark = new THREE.MeshStandardMaterial({ color: 0x1b1c1a, roughness: 0.9 });
+  const glass = new THREE.MeshStandardMaterial({ color: 0x1a2228, roughness: 0.15, metalness: 0.6 });
+  const tarp = new THREE.MeshStandardMaterial({ color: 0x5d5a44, roughness: 0.95 });
+  const box = (w, h, d, x, y, z, m) => { const b = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m); b.position.set(x, y, z); g.add(b); return b; };
+  const wheels = (zs, r = 0.5, half = 1.15) => { for (const z of zs) for (const x of [-half, half]) { const w = new THREE.Mesh(new THREE.CylinderGeometry(r, r, 0.38, 14), dark); w.rotation.z = Math.PI / 2; w.position.set(x, r, z); g.add(w); } };
+  if (kind === 'apc') {
+    box(2.6, 1.5, 6.4, 0, 1.45, 0, paint); box(2.4, 0.5, 2, 0, 2.45, 1.9, paint);
+    const slope = box(2.6, 0.9, 1.4, 0, 1.6, 3.4, paint); slope.rotation.x = 0.6;
+    box(1.2, 0.5, 1.4, 0, 2.5, -0.6, paint); const gun = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 2, 8), dark); gun.rotation.x = Math.PI / 2; gun.position.set(0, 2.6, 0.9); g.add(gun);
+    wheels([-2.2, -0.7, 0.8, 2.3], 0.55, 1.25);
+  } else {
+    box(2.3, 1.7, 2, 0, 1.75, 2.6, paint); box(2.1, 0.7, 0.06, 0, 2.15, 3.62, glass);
+    box(2.4, 0.4, 5.6, 0, 0.95, -0.6, dark);
+    if (kind === 'truck') { box(2.4, 0.6, 4.8, 0, 1.45, -1.0, paint); box(2.42, 1.8, 4.6, 0, 2.6, -1.0, tarp); }
+    else { box(2.2, 0.5, 3.6, 0, 1.4, -1.3, paint); const mg = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 1.4, 8), dark); mg.rotation.x = Math.PI / 2; mg.position.set(0, 2.5, -0.4); g.add(mg); box(0.3, 0.8, 0.3, 0, 2.0, -1.0, dark); }
+    wheels([2.5, -1.4, -2.7], 0.5, 1.15);
+  }
+  g.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+  G.scene.add(g);
+  return { g, kind, speed: 6, hp: kind === 'apc' ? 3 : 2 };
+}
+function burnVehicle(v) {
+  const burnt = new THREE.MeshStandardMaterial({ color: 0x1d1b19, roughness: 1 });
+  v.g.traverse(o => { if (o.isMesh) o.material = burnt; });
+  v.g.rotation.z = (Math.random() - 0.5) * 0.12;
+}
+
+// Four-engine cargo plane, nose toward local +X. Returns engine positions (local) and propellers.
+function cargoPlane(G) {
+  const g = new THREE.Group();
+  const grey = new THREE.MeshStandardMaterial({ color: 0x6b7075, roughness: 0.55, metalness: 0.5 });
+  const dark = new THREE.MeshStandardMaterial({ color: 0x222426, roughness: 0.7, metalness: 0.4 });
+  const glass = new THREE.MeshStandardMaterial({ color: 0x0e1418, roughness: 0.1, metalness: 0.8, emissive: 0x6a8aa0, emissiveIntensity: 0.25 });
+  const fus = new THREE.Mesh(new THREE.CylinderGeometry(2.4, 2.4, 26, 24), grey); fus.rotation.z = Math.PI / 2; fus.position.set(0, 3.4, 0); g.add(fus);
+  const nose = new THREE.Mesh(new THREE.SphereGeometry(2.4, 24, 16, 0, Math.PI * 2, 0, Math.PI / 2), grey); nose.rotation.z = -Math.PI / 2; nose.scale.set(1, 1.6, 1); nose.position.set(13, 3.4, 0); g.add(nose);
+  const tail = new THREE.Mesh(new THREE.ConeGeometry(2.4, 9, 24), grey); tail.rotation.z = Math.PI / 2; tail.position.set(-17.5, 4.2, 0); g.add(tail);
+  const cock = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.7, 3), glass); cock.position.set(15.6, 4.7, 0); g.add(cock);
+  const wing = new THREE.Mesh(new THREE.BoxGeometry(4.2, 0.35, 40), grey); wing.position.set(2, 5.7, 0); g.add(wing);
+  const fin = new THREE.Mesh(new THREE.BoxGeometry(4.5, 7, 0.35), grey); fin.position.set(-19, 8.5, 0); g.add(fin);
+  const stab = new THREE.Mesh(new THREE.BoxGeometry(3, 0.25, 14), grey); stab.position.set(-19.5, 5.6, 0); g.add(stab);
+  const engines = [], props = [];
+  for (const z of [-13, -6.5, 6.5, 13]) {
+    const n = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 1, 4, 16), dark); n.rotation.z = Math.PI / 2; n.position.set(3.6, 5.2, z); g.add(n);
+    const pr = new THREE.Group(); pr.position.set(5.7, 5.2, z);
+    for (let b = 0; b < 4; b++) { const bl = new THREE.Mesh(new THREE.BoxGeometry(0.08, 3.6, 0.3), dark); bl.rotation.x = b * Math.PI / 4; pr.add(bl); }
+    g.add(pr); props.push(pr); engines.push(V(3.6, 5.2, z));
+  }
+  for (const [x, z] of [[9, 0], [-1, -2.6], [-1, 2.6]]) { const w = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.6, 0.5, 14), dark); w.rotation.x = Math.PI / 2; w.position.set(x, 0.6, z); g.add(w); const s = new THREE.Mesh(new THREE.BoxGeometry(0.2, 1.3, 0.2), dark); s.position.set(x, 1.4, z); g.add(s); }
+  const ramp = new THREE.Mesh(new THREE.BoxGeometry(5, 0.2, 3.6), dark); ramp.position.set(-14, 1.0, 0); ramp.rotation.z = -0.35; g.add(ramp);
+  for (const z of [-20, 20]) { const l = new THREE.Mesh(new THREE.SphereGeometry(0.2), new THREE.MeshBasicMaterial({ color: z < 0 ? 0xff2020 : 0x20ff40 })); l.position.set(2, 5.8, z); g.add(l); }
+  g.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+  G.scene.add(g);
+  return { g, engines, props };
+}
+
+function helicopter(G) {
+  const g = new THREE.Group();
+  const paint = new THREE.MeshStandardMaterial({ color: 0x2b2f2a, roughness: 0.6, metalness: 0.4 });
+  const glass = new THREE.MeshStandardMaterial({ color: 0x111a20, roughness: 0.1, metalness: 0.8 });
+  const body = new THREE.Mesh(new THREE.SphereGeometry(1.4, 20, 14), paint); body.scale.set(1.9, 1, 1); body.position.set(0, 1.6, 0); g.add(body);
+  const can = new THREE.Mesh(new THREE.SphereGeometry(1.2, 20, 14, 0, Math.PI * 2, 0, Math.PI / 2), glass); can.scale.set(1.2, 0.8, 0.95); can.position.set(1.6, 1.75, 0); can.rotation.z = -0.5; g.add(can);
+  const boom = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.4, 5.5, 10), paint); boom.rotation.z = Math.PI / 2; boom.position.set(-4.2, 1.9, 0); g.add(boom);
+  const tfin = new THREE.Mesh(new THREE.BoxGeometry(1, 1.4, 0.12), paint); tfin.position.set(-6.8, 2.5, 0); g.add(tfin);
+  const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 0.6, 8), paint); mast.position.set(0, 3.1, 0); g.add(mast);
+  for (let b = 0; b < 4; b++) { const bl = new THREE.Mesh(new THREE.BoxGeometry(11, 0.05, 0.35), paint); bl.position.set(0, 3.4, 0); bl.rotation.y = b * Math.PI / 4 + 0.3; g.add(bl); }
+  for (const z of [-1, 1]) { const sk = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 4, 8), paint); sk.rotation.z = Math.PI / 2; sk.position.set(0.2, 0.1, z); g.add(sk); }
+  g.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+  G.scene.add(g);
+  return g;
 }
 
 function greenSmoke(G, pos, color = [0.35, 0.95, 0.4]) {
@@ -917,6 +994,550 @@ export const LEVELS = [
           },
           { type: 'kill', text: 'Take out the kill team', filter: e => e.zone === 'ambush' },
           { type: 'reach', text: 'Fight down the street to Okafor\'s car', pos: V(0, 0, 34), radius: 4 },
+        ],
+      };
+    },
+  },
+  {
+    id: 'blacktide', enemyWeapon: 'm4a1', name: 'BLACK TIDE', location: 'North Sea', time: '02:10 Local', night: true, reverb: 'outdoor',
+    briefing: 'Disavowed, you now work for nobody but each other. Hayes tracked Rask\'s cargo ship, the Black Tide, into a North Sea storm. The warheads from the radar station flights are supposed to be aboard. Board her from the bow, search the cargo hold, take the bridge and pull the navigation log. Then sink her. Kessler\'s people will be watching for you, so do it fast.',
+    dogtag: V(11.5, 0, -8),
+    radio: [
+      { at: 1, who: 'OKAFOR', text: 'Bow is clear. The hold hatch is midships. Move.' },
+      { at: 2, who: 'VOSS', text: 'Hold is clear. Check the crates, Ghost.' },
+      { at: 3, who: 'HAYES', text: 'Empty. They\'re stencilled for Zagoria. Rask moved them off this ship.', delay: 0.5 },
+      { at: 3, who: 'RASK', text: 'You are always one step behind, Sergeant. Kill them all.', delay: 7 },
+      { at: 4, who: 'OKAFOR', text: 'Bridge door is sealed. Set a breach.' },
+      { at: 6, who: 'HAYES', text: 'I need that navigation log. Every port, every waypoint.' },
+      { at: 7, who: 'VOSS', text: 'Got it. Now the fuel tanks on the starboard side. Let\'s sink her.' },
+      { at: 8, who: 'OKAFOR', text: 'Charges are live! Over the port rail, the boat is waiting!' },
+    ],
+    objectivesPreview: ['Secure the bow', 'Clear the cargo hold', 'Search the warhead crates', 'Fight aft to the bridge', 'Breach the bridge', 'Download the navigation log', 'Plant charges on the fuel tanks', 'Get off the ship'],
+    intro: ['ACT III — BLACK TIDE', 'Cargo ship "Black Tide", North Sea', 'Sgt. "Ghost" Reyes — Disavowed', 'Day 12, 02:10'],
+    hint: 'The deck rolls with the storm. Use the container rows for cover and watch the stacks above you.',
+    ambience: [['waves', 0.5], ['wind', 0.45]],
+    async build(G, prog) {
+      setupEnvironment(G, { hdri: 'qwantani_night_puresky', night: true, sunDir: V(0.4, 0.55, -0.6), sunIntensity: 0.4, sunColor: 0x9db4ff, envIntensity: 0.45, vmEnv: 1.5, fogColor: 0x10161e, fogDensity: 0.016, exposure: 1.5, hemi: 0.12, skyColor: 0x4a5a78, groundColor: 0x101418, shadowExtent: 45, grade: { tint: 0xdce6f4, saturation: 0.7, contrast: 1.12, vignette: 0.5 } });
+      G.envExposure = 1.5; G.level.tint = 'night';
+      const M = await mats(); const W = G.world;
+      W.bounds = { minX: -13, maxX: 13, minZ: -73, maxZ: 64 };
+      prog(0.3, 'Raising the sea');
+      const wn = await loadTexture('tex/waternormals.jpg'); wn.wrapS = wn.wrapT = THREE.RepeatWrapping;
+      const water = new Water(new THREE.PlaneGeometry(1600, 1600), { textureWidth: 512, textureHeight: 512, waterNormals: wn, sunDirection: V(0.4, 0.55, -0.6).normalize(), sunColor: 0x6070a0, waterColor: 0x061218, distortionScale: 6, fog: true });
+      water.rotation.x = -Math.PI / 2; water.position.set(0, -9, 0); G.scene.add(water); G.water = water;
+      // hull & deck (the deck is the ground plane at y = 0)
+      const deckM = M.plate.clone(); deckM.color.set(0x4b4f48);
+      const hullM = new THREE.MeshStandardMaterial({ color: 0x1b2833, roughness: 0.6, metalness: 0.4 });
+      const redM = new THREE.MeshStandardMaterial({ color: 0x5e1c16, roughness: 0.7 });
+      W.box(0, -0.35, -4.5, 28, 0.35, 140, deckM, { texSize: 3, collide: false });
+      W.box(0, -9.5, -4.5, 29, 9.1, 141, hullM, { collide: false, cast: false });
+      W.box(0, -10.5, -4.5, 29.4, 1.6, 141.4, redM, { collide: false, cast: false });
+      { // pointed bow: triangular prism hull + deck cap
+        const sh = new THREE.Shape(); sh.moveTo(-14.5, 0); sh.lineTo(14.5, 0); sh.quadraticCurveTo(9, -8, 0, -16); sh.quadraticCurveTo(-9, -8, -14.5, 0);
+        const hullG = new THREE.ExtrudeGeometry(sh, { depth: 9.6, bevelEnabled: false }); hullG.rotateX(Math.PI / 2); hullG.translate(0, 0, -74.6);
+        const bowM = new THREE.Mesh(hullG, hullM); bowM.position.y = -0.05; G.scene.add(bowM);
+        const capG = new THREE.ShapeGeometry(sh); capG.rotateX(Math.PI / 2); capG.translate(0, 0, -74.6);
+        const capM = deckM.clone(); capM.side = THREE.DoubleSide; const cap = new THREE.Mesh(capG, capM); cap.position.y = 0.002; cap.receiveShadow = true; G.scene.add(cap);
+        W.box(0, 0, -75, 28, 1.1, 0.12, M.yellow, { collide: true });
+      }
+      // rails
+      for (const x of [-13.85, 13.85]) { W.box(x, 0, -4.5, 0.12, 1.1, 139, M.yellow, { texSize: 1 }); for (let z = -73; z < 65; z += 2.5) W.box(x, 0, z, 0.12, 1.1, 0.12, M.yellow, { collide: false }); }
+      W.box(0, 0, 65.5, 28, 1.1, 0.12, M.yellow);
+      prog(0.45, 'Loading the containers');
+      const yard = new ContainerYard(G);
+      for (const [z, t] of [[-56, 2], [-48.5, 1], [-38, 2], [-4, 2], [3.5, 1], [14, 2], [21.5, 2], [32, 1]]) for (const [x, k] of [[-5.6, 0], [-3.1, 1], [3.1, 2], [5.6, 3]]) {
+        const tiers = Math.max(1, t - ((k + Math.round(z)) % 2 === 0 && t > 1 ? 1 : 0));
+        for (let lv = 0; lv < tiers; lv++) yard.add(x, z, 'z', lv, CONTAINER_COLORS[(k * 3 + Math.abs(Math.round(z)) + lv) % CONTAINER_COLORS.length], rnd() < 0.5);
+      }
+      for (const z of [-60, 26]) for (const x of [-10.5, 10.5]) yard.add(x, z, 'z', 0, null, rnd() < 0.5);
+      await yard.finish?.();
+      // cargo hold access housing
+      building(W, 0, -20, 12, 10, 3.2, M.rust, { roofMat: M.darkMetal, floorMat: M.darkMetal, doors: { n: [0.5], s: [0.5] }, windows: {}, parapet: 0 });
+      W.box(0, 3.2, -20, 13, 0.4, 11, M.yellow, { collide: false });
+      // superstructure + bridge deck
+      const whiteM = M.concrete.clone(); whiteM.color.set(0xd8d6d0);
+      building(W, 0, 56, 24, 14, 3.4, whiteM, { roofMat: whiteM, floorMat: M.floor, doors: { n: [0.5] }, windows: { n: [0.18, 0.82], e: [0.4], w: [0.4] }, parapet: 0 });
+      W.box(0, 3.4, 57.5, 20, 13, 10, whiteM, { collide: false });
+      W.box(0, 16.4, 56, 26, 3, 6, whiteM, { collide: false });
+      W.box(-4, 16.4, 62, 5, 9, 4, redM, { collide: false });
+      const winM = new THREE.MeshStandardMaterial({ color: 0x111111, emissive: 0xffd9a0, emissiveIntensity: 1.5 });
+      for (let k = 0; k < 3; k++) W.box(0, 5 + k * 3.6, 52.45, 17, 1, 0.1, winM, { collide: false, cast: false });
+      W.box(0, 17.2, 52.95, 24, 1.2, 0.1, winM, { collide: false, cast: false });
+      for (const [x, z, w, d] of [[-6, 60.5, 8, 1], [6, 60.5, 8, 1], [0, 57, 3, 1.2]]) W.box(x, 0, z, w, 1.05, d, M.darkMetal, { mat: 'metal' });
+      laptop(G, 0, 1.06, 57, Math.PI); laptop(G, -6, 1.06, 60.5, Math.PI);
+      // fuel tanks (starboard)
+      const tankM = new THREE.MeshStandardMaterial({ color: 0x8a8f86, roughness: 0.5, metalness: 0.6 });
+      for (const z of [40, 44.5]) { const t = new THREE.Mesh(new THREE.CylinderGeometry(1.6, 1.6, 4, 20), tankM); t.rotation.x = Math.PI / 2; t.position.set(10.5, 1.7, z); t.castShadow = true; G.scene.add(t); W.addCollider(V(8.9, 0, z - 2), V(12.1, 3.3, z + 2), 'metal'); }
+      // masts & deck lights
+      for (const z of [-76, -30, 10, 44]) { W.box(0, 0, z, 0.5, 11, 0.5, M.darkMetal, { mat: 'metal' }); const l = new THREE.PointLight(0xffe2b0, 22, 26, 2); l.position.set(0, 9, z); G.scene.add(l); }
+      for (const [x, z] of [[-12, -40], [12, -10], [-12, 20], [12, 50]]) { const l = new THREE.PointLight(0xff9a50, 6, 10, 2); l.position.set(x, 2.4, z); G.scene.add(l); }
+      await Promise.all([W.prop('wooden_military_crate', -10, -50, { mat: 'wood' }), W.prop('old_military_crate', 10, -34, { mat: 'wood' }), W.prop('Barrel_01', -11.5, 5), W.prop('barrel_03', -11, 6.2), W.prop('lifebuoy', -13.5, 18, { collide: false }), W.prop('lifebuoy', 13.5, -48, { collide: false })]);
+      // the empty warhead crates in the hold
+      for (const [x, z] of [[-2.5, -21], [0, -22.6], [2.5, -21]]) await W.prop('old_military_crate', x, z, { mat: 'wood', scale: 1.3 });
+      G._supplies = [V(-10, 0, -50), V(10, 0, -34)];
+      G.pickups.add('ammo', V(-11.4, 0, -10)); G.pickups.add('ammo', V(11.4, 0, 28));
+      prog(0.7, 'Crewing the ship');
+      const E = (x, z, zone, o = {}) => enemy(G, x, z, { zone, yaw: 0, ...o });
+      E(-2, -52, 'bow'); E(9, -50, 'bow', { patrol: [[9, -50], [9, -30]] }); E(-9, -43, 'bow'); E(3.1, -48.5, 'bow', { y: 2.6, hold: true }); E(1, -42, 'bow');
+      E(-3, -21, 'hold', { yaw: Math.PI }); E(3, -18.5, 'hold', { yaw: Math.PI }); E(0, -17, 'hold', { yaw: Math.PI });
+      for (const [x, z, o] of [[-9, -2, {}], [9, 1, {}], [0, 8, {}], [-3.1, 3.5, { y: 2.6, hold: true }], [-10, 18, {}], [10, 22, {}], [0, 26, {}], [5.6, 32, { y: 2.6, hold: true }], [-8, 38, {}], [3, 44, {}]]) E(x, z, 'deck', o);
+      for (const [x, z] of [[-6, 54], [5, 55.5], [0, 61], [9, 58]]) E(x, z, 'bridge', { yaw: 0 });
+      const route = [[0, -62], [0, -50], [8.5, -36], [8.5, -26], [8.5, -10], [0, 0], [9, 14], [0, 38], [-4, 46]];
+      const squad = [ally(G, -2, -69, { name: 'OKAFOR', route, slot: 1, tint: 'night' }), ally(G, 2, -69, { name: 'VOSS', route, slot: 2, tint: 'night' })];
+      const hold = n => squad.forEach(a => { a.holdAt = n; });
+      hold(2);
+      let blowT = -1, blown = false;
+      const blasts = [V(10.5, 2, 40), V(10.5, 2, 44.5), V(4, 2, 50), V(-6, 2, 30), V(6, 2, 10)];
+      return {
+        spawn: V(0, 0, -70), spawnYaw: Math.PI, exposure: 1.5,
+        weather: { type: 'rain', intensity: 1.2, wind: V(4, 0, -1), lightning: true },
+        update: (G, dt) => {
+          water.material.uniforms.time.value += dt * 0.8;
+          G.camRoll = Math.sin(G.time * 0.45) * 0.03 + Math.sin(G.time * 0.21) * 0.015;
+          if (blowT > 0 && !G.completed) {
+            blowT -= dt; if (G.objIdx === 8) G.hud.setObjectiveCount(`${Math.ceil(Math.max(0, blowT))}s`);
+            if (blowT <= 0 && !blown) { blown = true; blasts.forEach((p, i) => setTimeout(() => G.explode(p, 'frag', true, 2), i * 450)); setTimeout(() => { if (!G.completed) G.failMission('You went down with the ship.'); }, 1200); }
+          }
+        },
+        introScene: {
+          title: ['BLACK TIDE', 'North Sea · 02:10'],
+          shots: [
+            { from: [-34, 16, -108], to: [-24, 11, -90], look: [0, 2, -40], lookTo: [0, 1, -30], dur: 7, fov: 55 },
+            { from: [-17, -7, -70], to: [-15.2, 1.2, -69], look: [0, 1, -66], dur: 4.5, fov: 60 },
+            { from: [4, 1.8, -64], to: [1, 1.7, -67], look: [0, 1.4, -70], lookTo: [0, 1.6, -50], dur: 4, fov: 62 },
+          ],
+          lines: [
+            { at: 1.5, who: 'HAYES', text: 'There she is. The Black Tide. Rask\'s floating armoury.' },
+            { at: 7.5, who: 'OKAFOR', text: 'We\'re on deck. No flag, no friends. Just like old times, Ghost.' },
+          ],
+        },
+        outro: {
+          live: false,
+          shots: [
+            { from: [-30, 6, 40], to: [-44, 9, 10], look: [0, 3, 30], lookTo: [0, 4, 18], dur: 9, fov: 55 },
+          ],
+          lines: [
+            { at: 0.5, who: 'RASK', text: 'Clever, Sergeant. But the warheads are already in the mountains.' },
+            { at: 5.5, who: 'HAYES', text: 'The nav log shows a convoy route through the Zagoria pass.' },
+            { at: 9, who: 'OKAFOR', text: 'Then that\'s where we hit him.' },
+          ],
+          update: (G, t) => { if (!G._obx) G._obx = 0; const k = Math.floor(t / 1.4); if (k > G._obx && k < 7) { G._obx = k; G.explode(V((Math.random() - 0.5) * 20, 2, -40 + k * 14), 'frag', false, 2.4); } },
+        },
+        objectives: [
+          { type: 'kill', text: 'Secure the bow', filter: e => e.zone === 'bow' },
+          { type: 'kill', text: 'Clear the cargo hold', filter: e => e.zone === 'hold', onStart: () => hold(4), restore: () => hold(4) },
+          { type: 'interact', text: 'Search the warhead crates', pos: V(0, 0, -21.2), radius: 2, label: 'Hold <b>[F]</b> to open the crates', time: 2.5 },
+          { type: 'kill', text: 'Fight aft to the bridge', filter: e => e.zone === 'deck', onStart: () => hold(8), restore: () => hold(8) },
+          { type: 'custom', text: 'Breach the bridge door', pos: V(0, 0, 48), check: () => G._btDoor?.done, onStart: G => { G._btDoor = G.addBreach({ x: 0, z: 49, horiz: true, zone: 'bridge', out: [0, -1.2] }); } },
+          { type: 'kill', text: 'Clear the bridge', filter: e => e.zone === 'bridge', onStart: () => hold(9) },
+          { type: 'interact', text: 'Download the navigation log', pos: V(0, 0, 55.6), radius: 1.8, label: 'Hold <b>[F]</b> to download the navigation log', time: 4 },
+          { type: 'interact', text: 'Plant charges on the fuel tanks', pos: V(8.4, 0, 42.2), radius: 2, label: 'Hold <b>[F]</b> to plant charges', time: 3, onDone: G => { if (!G._restoring) { blowT = 40; G.hud.toast('CHARGES SET — 40 SECONDS', 3); } } },
+          { type: 'reach', text: 'Get over the port rail to the boat', pos: V(-12.6, 0, 20), radius: 2.6 },
+        ],
+      };
+    },
+  },
+  {
+    id: 'convoy', enemyWeapon: 'ak47', name: 'CONVOY', location: 'Zagoria Pass', time: '18:20 Local', reverb: 'outdoor',
+    briefing: 'Rask\'s warheads are moving by road through the Zagoria pass, escorted by an armoured truck, two cargo trucks and a technical. Plant an IED on the road, take the ridge above it, and blow the lead vehicle when it rolls over the charge. Then kill the escort and secure the warhead truck before Rask\'s reinforcements arrive. If the convoy gets past the IED, it\'s gone.',
+    dogtag: V(-30, 0, -26),
+    radio: [
+      { at: 0, who: 'HAYES', text: 'Convoy is ten minutes out. Plant the IED in the culvert on the road.', delay: 2 },
+      { at: 1, who: 'OKAFOR', text: 'IED is set. Up on the ridge with us, Ghost.' },
+      { at: 2, who: 'VOSS', text: 'Here they come. Armoured lead, two trucks, a gun truck at the rear. Wait for the lead.', delay: 2 },
+      { at: 3, who: 'OKAFOR', text: 'Lead is burning! Kill the escort, weapons free!' },
+      { at: 4, who: 'HAYES', text: 'More trucks coming from the east. Rask\'s quick reaction force.' },
+      { at: 5, who: 'VOSS', text: 'Road\'s clear. Get to the second cargo truck and secure that warhead.' },
+    ],
+    objectivesPreview: ['Plant the IED', 'Take the ridge', 'Ambush the convoy', 'Kill the escort', 'Stop the reinforcements', 'Secure the warhead'],
+    intro: ['ACT IV — CONVOY', 'Zagoria Pass', 'Sgt. "Ghost" Reyes — Disavowed', 'Day 13, 18:20'],
+    hint: 'Hold <b>[E]</b> to plant the IED, then press <b>[E]</b> again to detonate when the lead truck is on top of it.',
+    ambience: [['wind', 0.6]],
+    async build(G, prog) {
+      setupEnvironment(G, { hdri: 'belfast_sunset_puresky', sunDir: V(-1, 0.14, 0.25), sunIntensity: 3.2, sunColor: 0xffa060, envIntensity: 0.85, fogColor: 0x9a8a88, fogDensity: 0.006, exposure: 1.0, skyTop: 0x3b4f78, skyHorizon: 0xf0a070, skyGround: 0x5a4e46, clouds: 0.4, cloudColor: 0xffc8a0, skyBright: 1.05, hemi: 0.22, skyColor: 0xffc4a0, groundColor: 0x5a4e46, grade: { tint: 0xfff0e4, saturation: 1.0, contrast: 1.1 } });
+      G.envExposure = 1.0; G.level.tint = 'woodland';
+      const M = await mats(); const W = G.world;
+      W.bounds = { minX: -74, maxX: 74, minZ: -42, maxZ: 30 };
+      await terrain(G, { tex: 'rocky_terrain_02', texSize: 7, flat: 62, hills: 70, mat: 'dirt', seed: 21, color: 0xb0a898 });
+      prog(0.35, 'Cutting the road');
+      W.box(0, 0.005, 1, 400, 0.02, 7.5, M.asphalt, { collide: false, texSize: 5 });
+      roadPaint(G, [[-200, 1, 200, 1, 0.14, true], [-200, -2.6, 200, -2.6, 0.1], [-200, 4.6, 200, 4.6, 0.1]], 0xd8d0b0);
+      const rockM = M.rock.clone(); rockM.color.set(0x9a8f84);
+      // ambush ridge north of the road, with steps down its east end
+      W.box(-4, 0, -21, 34, 4, 9, rockM, { mat: 'concrete', texSize: 4 });
+      W.box(-4, 4, -16.9, 26, 0.6, 0.6, rockM, { mat: 'concrete' });
+      for (let i = 0; i < 9; i++) W.box(14.5, 0, -18 + i * 0.6, 3, 3.6 - i * 0.4, 0.6, rockM, { mat: 'concrete', texSize: 2 });
+      // outcrops and cover along the road
+      for (const [x, z, sc] of [[-40, -14, 2.6], [36, -12, 2.8], [-26, 14, 2.4], [22, 16, 2.2], [52, 12, 3], [-58, -10, 3], [58, -22, 3.4], [-12, 20, 1.8], [-22, -26, 3.2], [12, -26, 3], [-4, -27, 2.6]]) await W.prop('boulder_01', x, z, { scale: sc, rotY: x * 0.7, mat: 'concrete' });
+      vehicleWreck(G, M, -48, 7, 0.4); vehicleWreck(G, M, 44, -6, 2.6, true);
+      await scatter(G, 'namaqualand_boulder_02', spots(G, 26, { keep: [[0, 1, 6], [-4, -21, 18], [14, -14, 4]], clear: 2, x0: -72, x1: 72, z0: -40, z1: 28, scale: [0.8, 1.6] }), { collide: true, colRadius: 'auto', colHeight: 'auto', sink: 0.05 });
+      await scatter(G, 'dry_branches_medium_01', spots(G, 40, { keep: [[0, 1, 5]], clear: 1, x0: -72, x1: 72, z0: -40, z1: 28, scale: [1, 2.2] }), { cast: false });
+      G._supplies = [V(-14, 0, -14), V(30, 0, -8)];
+      G.pickups.add('ammo', V(-8, 4, -22)); G.pickups.add('ammo', V(2, 4, -22)); G.pickups.add('grenade', V(-4, 4, -23));
+      prog(0.6, 'Fuelling the convoy');
+      const ied = V(8, 0, 1.5);
+      const iedMesh = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.2, 0.35), new THREE.MeshStandardMaterial({ color: 0x4a4a3a, roughness: 0.9 })); iedMesh.position.set(8, 0.1, 4.2); iedMesh.visible = false; G.scene.add(iedMesh);
+      const vehicles = [];
+      const mkV = (kind, x) => { const v = convoyVehicle(G, kind); v.g.position.set(x, 0, 1.5); v.g.rotation.y = Math.PI / 2; vehicles.push(v); return v; };
+      const lead = mkV('apc', -120), truck1 = mkV('truck', -134), truck2 = mkV('truck', -148), tech = mkV('technical', -162);
+      truck2.warhead = true;
+      let rolling = false, stopped = false, detonated = false, qrf = null, qrfArrived = false;
+      const squad = [ally(G, -10, -22, { name: 'OKAFOR', slot: 1 }), ally(G, 0, -22, { name: 'VOSS', slot: 2 })];
+      squad.forEach(a => { a.stayPut = true; a.yaw = Math.PI; a.pos.y = 4; a.hold = true; });
+      const route = [[14.5, -12], [8, -6], [0, -4]];
+      const unleash = () => squad.forEach((a, i) => { a.stayPut = false; a.route = route.map(p => [p[0] - i * 3, p[1]]); a.routeIdx = 0; a.holdAt = 3; });
+      const dismount = () => {
+        if (stopped) return; stopped = true;
+        const pts = [];
+        for (const v of [truck1, truck2]) { const p = v.g.position; for (const dz of [-3.5, 4.5]) for (const dx of [-2, 2]) pts.push([p.x + dx, p.z + dz]); }
+        pts.push([lead.g.position.x + 6, -3], [tech.g.position.x - 3, 6]);
+        for (const [x, z] of pts) { const e = enemy(G, x, z, { zone: 'escort', state: 'combat' }); e.lastSeen = G.player.pos.clone(); e.lastSeenT = G.time; e.awareness = 1; }
+        const gun = enemy(G, tech.g.position.x - 0.8, 1.5, { zone: 'escort', y: 1.3, hold: true, state: 'combat', yaw: Math.PI }); gun.lastSeen = G.player.pos.clone(); gun.awareness = 1; tech.gunner = gun;
+      };
+      const detonate = () => {
+        if (detonated) return; detonated = true; iedMesh.visible = false;
+        G.explode(ied.clone().add(V(0, 0.4, 0)), 'frag', true, 2.6);
+        if (lead.g.position.distanceTo(ied) < 10) { lead.dead = true; burnVehicle(lead); G.hud.toast('DIRECT HIT', 2); }
+        else G.hud.toast('MISSED — CONVOY HALTED', 2.5);
+        for (const v of vehicles) v.speed = 0;
+        dismount(); unleash();
+      };
+      return {
+        spawn: V(4, 0, 12), spawnYaw: Math.PI * 0.9, exposure: 1.0,
+        weather: { type: 'sand', intensity: 0.25, wind: V(3, 0, 0) },
+        onExplosion: (pos) => { for (const v of vehicles) if (!v.dead && v.g.position.distanceTo(pos) < 4.5 && detonated) { v.hp = (v.hp ?? 2) - 1; if (v.hp <= 0) { v.dead = true; burnVehicle(v); } } },
+        update: (G, dt) => {
+          for (const v of vehicles) {
+            if (v.dead) { if (Math.random() < dt * 14) G.effects.add.spawn(v.g.position.clone().add(V((Math.random() - 0.5) * 2, 1.6, (Math.random() - 0.5) * 1.5)), V(0, 2.2, 0), { life: 0.7, size: 1, grow: -0.6, color: [1, 0.55, 0.2], alpha: 0.9 }); if (Math.random() < dt * 4) G.effects.smoke.spawn(v.g.position.clone().add(V(0, 2.5, 0)), V(0.4, 1.4, 0), { life: 6, size: 1.2, grow: 1.6, color: [0.08, 0.08, 0.08], alpha: 0.5, drag: 0.3, spin: 0.3, fade: 2 }); continue; }
+            if (rolling && v.speed !== 0) v.g.position.x += (v.speed ?? 6) * dt;
+            if (v === tech && stopped && tech.gunner?.alive) {
+              v.cd = (v.cd ?? 1) - dt;
+              if (v.cd <= 0) { v.cd = 0.11; v.burst = (v.burst || 0) + 1; if (v.burst > 10) { v.burst = 0; v.cd = 2.2; }
+                const from = v.g.position.clone().add(V(0, 2.3, 0)), to = G.player.eyePos(V()).add(V((Math.random() - 0.5) * 5, (Math.random() - 0.5) * 2, (Math.random() - 0.5) * 5));
+                G.effects.tracer(from, to); audio.shot('lmg', from, false);
+                if (Math.random() < 0.15 * G.diff.acc && G.world.lineOfSight(from, G.player.eyePos(V()))) G.player.damage(9, from);
+              }
+            }
+          }
+          if (rolling && !detonated && lead.g.position.x > 30) G.failMission('The convoy got through.');
+          if (qrf && !qrfArrived) { qrf.g.position.x -= 9 * dt; if (qrf.g.position.x <= 46) { qrfArrived = true; for (let i = 0; i < 6; i++) { const e = enemy(G, 46 + (i % 3) * 2, -4 + ((i / 3) | 0) * 9, { zone: 'qrf', state: 'combat' }); e.lastSeen = G.player.pos.clone(); e.awareness = 1; } } }
+        },
+        introScene: {
+          title: ['CONVOY', 'Zagoria Pass · 18:20'],
+          shots: [
+            { from: [-120, 40, 60], to: [-60, 22, 40], look: [0, 0, 0], lookTo: [10, 0, -6], dur: 7, fov: 50 },
+            { from: [-4, 6, -14], to: [-4, 5.2, -12], look: [8, 0, 2], lookTo: [10, 0, 1.5], dur: 4.5, fov: 55 },
+          ],
+          lines: [
+            { at: 1, who: 'HAYES', text: 'One road through the pass. Rask\'s convoy has to come this way.' },
+            { at: 6.5, who: 'VOSS', text: 'Good ground. We hit them from the ridge.' },
+          ],
+        },
+        outro: {
+          shots: [{ from: [truck2.g.position.x - 5, 2.2, 7], to: [truck2.g.position.x - 3, 2.6, 5], look: [truck2.g.position.x - 2, 1.6, 1.5], dur: 11, fov: 50 }],
+          lines: [
+            { at: 0.5, who: 'HAYES', text: 'One warhead. Only one. The second one isn\'t here.' },
+            { at: 4.5, who: 'RASK', text: 'Looking for this, Sergeant? It is on my plane at Krasnaya airfield. Wheels up at midnight.' },
+            { at: 10, who: 'OKAFOR', text: 'Then we go in from the sky.' },
+          ],
+        },
+        objectives: [
+          { type: 'interact', text: 'Plant the IED in the culvert', pos: V(8, 0, 4.2), radius: 1.8, label: 'Hold <b>[F]</b> to plant the IED', time: 3, onDone: () => { iedMesh.visible = true; } },
+          { type: 'reach', text: 'Take the ambush position on the ridge', pos: V(-4, 4, -20), radius: 5, cond: G => G.player.pos.y > 3 },
+          {
+            type: 'custom', text: 'Ambush the convoy: detonate when the lead truck is on the IED', pos: ied, waypoint: false,
+            onStart: () => { rolling = true; },
+            restore: () => { rolling = true; lead.g.position.x = 8; truck1.g.position.x = -6; truck2.g.position.x = -20; tech.g.position.x = -34; detonate(); },
+            check: (G) => {
+              const d = lead.g.position.x - ied.x;
+              G.hud.setObjectiveCount(d < -60 ? 'Convoy approaching' : d < -10 ? `Lead vehicle ${Math.round(-d)} m out` : d < 10 ? 'NOW!' : 'Too late!');
+              if (G.input.actHit('interact')) detonate();
+              return detonated;
+            },
+          },
+          { type: 'kill', text: 'Kill the convoy escort', filter: e => e.zone === 'escort' },
+          { type: 'custom', text: 'Stop the reinforcements', pos: V(46, 0, 0), check: G => { const left = G.enemies.list.filter(e => e.alive && e.zone === 'qrf').length; G.hud.setObjectiveCount(qrfArrived ? `${left} remaining` : 'Truck inbound'); return qrfArrived && left === 0; }, onStart: () => { qrf = convoyVehicle(G, 'truck'); qrf.g.position.set(110, 0, -2); qrf.g.rotation.y = -Math.PI / 2; vehicles.push(qrf); qrf.speed = 0; G.hud.toast('ENEMY TRUCK INBOUND', 2.5); } },
+          { type: 'interact', text: 'Secure the warhead', pos: V(-20, 0, 1.5), radius: 2.2, label: 'Hold <b>[F]</b> to secure the warhead', time: 4, onStart: (G, o) => { o.pos = truck2.g.position.clone().add(V(-3.6, 0, 0)); } },
+        ],
+      };
+    },
+  },
+  {
+    id: 'skyfall', enemyWeapon: 'm4a1', name: 'SKYFALL', location: 'Krasnaya Airfield', time: '23:40 Local', night: true, reverb: 'outdoor',
+    briefing: 'Rask has the second warhead aboard a cargo plane at Krasnaya airfield, wheels up at midnight. You will HALO jump in from 700 metres: steer for Voss\'s green smoke and open your chute low. Clear the hangar, kill the runway lights, then stop that plane before it leaves the ground. Its engines are its weak point. Rask is aboard. We want him alive.',
+    dogtag: V(-62, 0, 40),
+    radio: [
+      { at: 1, who: 'VOSS', text: 'You\'re down. Good jump, Ghost. Hangar first.' },
+      { at: 2, who: 'OKAFOR', text: 'Hangar is clear. Kill the runway lights at the tower and they\'re flying blind.' },
+      { at: 3, who: 'HAYES', text: 'The plane is moving! Shoot out the engines! Two of them and it can\'t take off!' },
+      { at: 4, who: 'VOSS', text: 'She\'s down! Get to the cargo door. Rask is inside.' },
+    ],
+    objectivesPreview: ['HALO jump to the landing zone', 'Clear the hangar', 'Kill the runway lights', 'Stop Rask\'s plane', 'Take Rask'],
+    intro: ['ACT IV — SKYFALL', 'Krasnaya Airfield', 'Sgt. "Ghost" Reyes — Disavowed', 'Day 13, 23:40'],
+    hint: 'Steer with <b>WASD</b> and the mouse. Press <b>SPACE</b> to open your chute below 650 m.',
+    ambience: [['wind', 0.4]],
+    async build(G, prog) {
+      setupEnvironment(G, { hdri: 'qwantani_night_puresky', night: true, sunDir: V(0.3, 0.65, 0.5), sunIntensity: 0.45, sunColor: 0xa8bcff, envIntensity: 0.5, vmEnv: 1.6, fogColor: 0x0d121a, fogDensity: 0.0045, exposure: 1.5, hemi: 0.12, skyColor: 0x46557a, groundColor: 0x1a1c20, shadowExtent: 60, grade: { tint: 0xdde6f6, saturation: 0.72, contrast: 1.1, vignette: 0.45 } });
+      G.envExposure = 1.5; G.level.tint = 'night';
+      const M = await mats(); const W = G.world;
+      W.bounds = { minX: -88, maxX: 88, minZ: -60, maxZ: 58 };
+      await terrain(G, { tex: 'dry_ground_01', texSize: 7, flat: 95, hills: 35, mat: 'dirt', seed: 31, size: 1400, color: 0x9a9482 });
+      { const far = new THREE.Mesh(new THREE.PlaneGeometry(9000, 9000), new THREE.MeshStandardMaterial({ color: 0x2a2a26, roughness: 1 })); far.rotation.x = -Math.PI / 2; far.position.y = -2; G.scene.add(far); }
+      prog(0.3, 'Paving the runway');
+      W.box(0, 0.005, -22, 400, 0.02, 22, M.asphalt, { collide: false, texSize: 6 });
+      W.box(-30, 0.006, -2, 14, 0.02, 20, M.asphalt, { collide: false, texSize: 6 });
+      W.box(0, 0.006, 10, 150, 0.02, 12, M.asphalt, { collide: false, texSize: 6 });
+      roadPaint(G, [[-200, -22, 200, -22, 0.3, true], [-200, -32.5, 200, -32.5, 0.2], [-200, -11.5, 200, -11.5, 0.2]], 0xe8e8e0);
+      // runway lights
+      const lightsG = new THREE.Group(); G.scene.add(lightsG);
+      const bulbM = new THREE.MeshBasicMaterial({ color: 0xfff0c0 }), blueM = new THREE.MeshBasicMaterial({ color: 0x4a8aff });
+      for (let x = -180; x <= 180; x += 12) for (const z of [-33.2, -10.8]) { const b = new THREE.Mesh(new THREE.SphereGeometry(0.18, 6, 4), bulbM); b.position.set(x, 0.25, z); lightsG.add(b); }
+      for (let x = -70; x <= 70; x += 10) { const b = new THREE.Mesh(new THREE.SphereGeometry(0.14, 6, 4), blueM); b.position.set(x, 0.2, 3.6); lightsG.add(b); }
+      const rlights = [];
+      for (const x of [-60, -20, 20, 60]) { const l = new THREE.PointLight(0xffe8c0, 16, 30, 2); l.position.set(x, 6, -22); G.scene.add(l); rlights.push(l); }
+      prog(0.45, 'Building hangars');
+      building(W, -40, 32, 28, 20, 8, M.corr, { roofMat: M.rust, floorMat: M.floor, doors: { s: [0.3, 0.5, 0.7], e: [0.5] }, windows: {}, parapet: 0 });
+      building(W, 0, 34, 20, 16, 7, M.corr, { roofMat: M.rust, floorMat: M.floor, doors: { s: [0.5], w: [0.5] }, windows: {}, parapet: 0 });
+      building(W, 40, 26, 10, 8, 3.4, M.concrete, { roofMat: M.concrete, floorMat: M.floor, doors: { s: [0.5] }, windows: { e: [0.5], w: [0.5] } });
+      const towerM = M.concrete.clone(); towerM.color.set(0xb8b4aa);
+      W.box(40, 3.4, 26, 5, 12, 5, towerM, { collide: false });
+      W.box(40, 15.4, 26, 8, 3.4, 8, new THREE.MeshStandardMaterial({ color: 0x182028, emissive: 0x8ad0ff, emissiveIntensity: 0.5, roughness: 0.2, metalness: 0.5 }), { collide: false });
+      const beacon = new THREE.PointLight(0xffffff, 0, 60, 2); beacon.position.set(40, 20, 26); G.scene.add(beacon);
+      for (const [x, z, l] of [[-40, 21, 1], [0, 25.5, 1], [40, 21.5, 0.6]]) { const p = new THREE.PointLight(0xffd8a0, 14 * l, 18, 2); p.position.set(x, 4, z); G.scene.add(p); }
+      // fuel trucks, crates, sandbags
+      vehicleWreck(G, M, -14, 14, 1.4, true, { burnt: false }); vehicleWreck(G, M, 22, 12, -0.3, false, { burnt: false });
+      sandbagWall(W, M, 30, 18, 4); sandbagWall(W, M, -56, 18, 4); sandbagWall(W, M, 10, -2, 4);
+      await Promise.all([W.prop('old_military_crate', -24, 20, { mat: 'wood' }), W.prop('wooden_crate_01', -22.8, 21, { mat: 'wood' }), W.prop('Barrel_01', 16, 22), W.prop('barrel_03', 17, 22.8), W.prop('propane_tank', -8, 22, { explosive: true }), W.prop('portable_generator', 44, 21.5, { rotY: 1.2 }), W.prop('utility_box_01', 44.6, 22.2)]);
+      G._supplies = [V(-24, 0, 20), V(30, 0, 21)];
+      G.pickups.add('ammo', V(-36, 0, 28)); G.pickups.add('grenade', V(-44, 0, 30));
+      prog(0.6, 'Fuelling the plane');
+      const plane = cargoPlane(G); plane.g.position.set(-64, 0, -22);
+      const engines = plane.engines.map(local => {
+        const c = W.addCollider(V(), V(), 'metal'); c.explosive = true; c.hp = 230; W.dynamic.push(c); c.local = local; c.fire = 0; return c;
+      });
+      const syncEngines = () => { for (const c of engines) { if (c.exploded) continue; const p = c.local.clone().applyMatrix4(plane.g.matrixWorld); c.min.set(p.x - 1.3, p.y - 1.1, p.z - 1.1); c.max.set(p.x + 1.3, p.y + 1.1, p.z + 1.1); } };
+      plane.g.updateMatrixWorld(true); syncEngines();
+      let planeT = -1, planeStopped = false, landed = false;
+      // enemies
+      const E = (x, z, zone, o = {}) => enemy(G, x, z, { zone, ...o });
+      for (const [x, z, o] of [[-46, 30, {}], [-34, 34, {}], [-40, 24, { patrol: [[-50, 18], [-26, 18]] }], [-30, 38, { hold: true }], [-50, 36, {}], [-20, 24, {}]]) E(x, z, 'hangar', o);
+      for (const [x, z, o] of [[38, 18, {}], [44, 20, {}], [40, 26, { hold: true }], [26, 16, { patrol: [[26, 16], [26, 0]] }]]) E(x, z, 'tower', o);
+      for (const [x, z] of [[-50, -8], [-40, -14], [-60, -30], [-30, -28], [-20, -10]]) E(x, z, 'runway');
+      const voss = ally(G, 60, 46, { name: 'VOSS', slot: 1, tint: 'night' }); voss.stayPut = true;
+      const smoke = greenSmoke(G, V(60, 0, 45));
+      const startHalo = G => {
+        G.controller = new Skydive(G, { start: [-30, 700, -40], target: [60, 45], chuteAt: 170, onLand: (G, d) => { landed = true; voss.stayPut = false; voss.pos.set(G.player.pos.x + 2, 0, G.player.pos.z + 2); G.hud.toast(d < 15 ? 'PERFECT LANDING' : 'ON THE GROUND', 2); } });
+      };
+      return {
+        spawn: V(60, 0, 42), spawnYaw: Math.PI * 0.6, exposure: 1.5,
+        update: (G, dt) => {
+          if (!landed || G.objIdx < 2) smoke(dt);
+          beacon.intensity = lightsG.visible && (G.time % 1.6) < 0.15 ? 30 : 0;
+          if (planeT >= 0 && !planeStopped) {
+            planeT += dt;
+            const x = -64 + 0.9 * planeT + 0.07 * planeT * planeT;
+            plane.g.position.x = x;
+            for (const p of plane.props) p.rotation.x += dt * 30;
+            if (x > 86) { plane.g.position.y = (x - 86) * 0.4; if (!G.failed) G.failMission('Rask\'s plane took off with the warhead.'); }
+          }
+          plane.g.updateMatrixWorld(true); syncEngines();
+          const dead = engines.filter(c => c.exploded);
+          for (const c of dead) { const p = c.local.clone().applyMatrix4(plane.g.matrixWorld); if (Math.random() < dt * 20) G.effects.add.spawn(p.clone().add(V((Math.random() - 0.5), 0, (Math.random() - 0.5))), V(-2, 1.5, 0), { life: 0.6, size: 0.9, grow: -0.5, color: [1, 0.5, 0.15], alpha: 0.9 }); if (Math.random() < dt * 5) G.effects.smoke.spawn(p, V(-1, 1.6, 0), { life: 5, size: 1, grow: 1.5, color: [0.07, 0.07, 0.07], alpha: 0.5, drag: 0.3, spin: 0.3, fade: 2 }); }
+        },
+        introScene: {
+          title: ['SKYFALL', 'Krasnaya Airfield · 23:40'],
+          shots: [
+            { from: [-120, 760, -120], to: [-60, 720, -70], look: [0, 0, 0], lookTo: [20, 0, 10], dur: 6, fov: 55 },
+            { from: [-33, 704, -44], to: [-31, 701, -42], look: [60, 0, 45], dur: 3, fov: 70 },
+          ],
+          lines: [
+            { at: 0.8, who: 'OVERLORD', text: 'Jumpmaster. Green light, green light. Go, go, go.' },
+            { at: 4.5, who: 'VOSS', text: 'I\'m on the ground. Green smoke marks the LZ. Come to me, Ghost.' },
+          ],
+        },
+        onIntroDone: G => { if (G.objIdx === 0 && !G.controller && !landed) startHalo(G); },
+        outro: {
+          shots: [
+            { from: [plane.g.position.x - 14, 2.2, -16], to: [plane.g.position.x - 10, 1.9, -15], look: [plane.g.position.x - 4, 1.2, -20], dur: 8, fov: 48 },
+            { from: [plane.g.position.x - 10, 1.9, -15], to: [plane.g.position.x - 9, 1.6, -15.5], look: [plane.g.position.x - 4, 0.6, -19.5], dur: 6, fov: 40 },
+          ],
+          lines: [
+            { at: 0.5, who: 'RASK', text: 'Too late, Sergeant. Kessler has the other one. Iron Dawn, at the old Vanguard fortress.' },
+            { at: 6, who: 'RASK', text: 'At sunrise it goes off, and the world will blame Vanguard for it.' },
+            { at: 10.5, who: 'KESSLER', text: 'Loose ends, Viktor.' },
+            { at: 13, who: 'OKAFOR', text: 'Sniper! Rask is down! Kessler is cleaning house.' },
+          ],
+          update: (G, t) => {
+            if (!G._rask) { G._rask = enemy(G, plane.g.position.x - 4, -19.5, { zone: 'rask', hold: true, yaw: Math.PI / 2, tint: 'urban' }); G._rask.rifle && (G._rask.rifle.visible = false); }
+            if (t > 11.2 && G._rask.alive) { audio.shot('sniper', V(plane.g.position.x + 60, 10, -60), false); G._rask.takeDamage(9999, V(-1, 0, 0.3).normalize(), { point: G._rask.headPos(V()), force: 5 }); }
+          },
+        },
+        objectives: [
+          { type: 'custom', text: 'HALO jump: steer to the green smoke', pos: V(60, 0, 45), restore: () => { landed = true; voss.stayPut = false; }, check: () => landed },
+          { type: 'kill', text: 'Clear the hangar', filter: e => e.zone === 'hangar' },
+          { type: 'interact', text: 'Kill the runway lights (tower power)', pos: V(42, 0, 24), radius: 2, label: 'Hold <b>[F]</b> to cut the power', time: 2.5, onDone: G => { lightsG.visible = false; rlights.forEach(l => { l.intensity = 0; }); if (!G._restoring) { G.hud.toast('RUNWAY DARK — NIGHT VISION [N]', 3); G.alertEnemies(V(0, 0, 0), 300); } } },
+          {
+            type: 'custom', text: 'Stop Rask\'s plane: destroy 2 engines', pos: plane.g.position, waypoint: false,
+            onStart: G => { planeT = 0; G.hud.toast('RASK\'S PLANE IS ROLLING!', 3); },
+            check: (G) => { const n = engines.filter(c => c.exploded).length; G.hud.setObjectiveCount(`Engines ${n}/2`); if (n >= 2) { planeStopped = true; return true; } return false; },
+          },
+          { type: 'reach', text: 'Take Rask at the cargo door', pos: V(0, 0, 0), radius: 4, onStart: (G, o) => { o.pos = V(plane.g.position.x - 6, 0, -17.5); } },
+        ],
+      };
+    },
+  },
+  {
+    id: 'irondawn', enemyWeapon: 'm4a1', name: 'IRON DAWN', location: 'Fort Varga, Zagoria', time: '05:12 Local', reverb: 'outdoor',
+    briefing: 'Kessler has the last warhead inside Fort Varga, an old Vanguard training fortress. At sunrise he detonates it and the world blames Vanguard. Okafor, Voss and Hayes are with you. Blow the gate, silence the machine-gun towers and breach the keep. When the gate goes, the clock starts: you have five minutes to reach and disarm the warhead. Then find Kessler.',
+    dogtag: V(30, 0, 18),
+    radio: [
+      { at: 0, who: 'HAYES', text: 'Gate charge first, Ghost. Once it blows, Kessler will start the timer.', delay: 2 },
+      { at: 1, who: 'KESSLER', text: 'Reyes. You should have stayed dead.', delay: 1 },
+      { at: 2, who: 'OKAFOR', text: 'Machine guns on both towers! Take them out!' },
+      { at: 3, who: 'VOSS', text: 'Towers are down. The warhead is in the keep. Breach it.' },
+      { at: 5, who: 'HAYES', text: 'There it is. Red wire, then blue. Don\'t rush it.' },
+      { at: 6, who: 'OKAFOR', text: 'Warhead is safe. Kessler is at the helipad. His pilot is down. He\'s got nowhere to go.' },
+    ],
+    objectivesPreview: ['Blow the gate', 'Take the courtyard', 'Silence the machine-gun towers', 'Breach the keep', 'Clear the keep', 'Disarm the warhead', 'Confront Kessler'],
+    intro: ['ACT IV — IRON DAWN', 'Fort Varga, Zagoria', 'Sgt. "Ghost" Reyes — Disavowed', 'Day 14, 05:12'],
+    hint: 'Once the gate blows you have five minutes. Watch the timer above the objective.',
+    ambience: [['wind', 0.45]],
+    async build(G, prog) {
+      setupEnvironment(G, { hdri: 'kloofendal_48d_partly_cloudy_puresky', sunDir: V(0.9, 0.12, 0.35), sunIntensity: 3.0, sunColor: 0xff9a5a, envIntensity: 0.7, fogColor: 0xb89c8a, fogDensity: 0.006, exposure: 1.05, skyTop: 0x4a5f88, skyHorizon: 0xffb080, skyGround: 0x6a5a50, clouds: 0.45, cloudColor: 0xffc0a0, skyBright: 1.1, hemi: 0.2, skyColor: 0xffc8a8, groundColor: 0x6a5a50, grade: { tint: 0xfff0e2, saturation: 1.02, contrast: 1.12 } });
+      G.envExposure = 1.05; G.level.tint = 'urban';
+      const M = await mats(); const W = G.world;
+      W.bounds = { minX: -60, maxX: 60, minZ: -62, maxZ: 70 };
+      await terrain(G, { tex: 'rocky_terrain_02', texSize: 6, flat: 80, hills: 55, mat: 'dirt', seed: 41, color: 0xb3a998 });
+      prog(0.35, 'Building Fort Varga');
+      const wallM = M.concrete.clone(); wallM.color.set(0xa8a49a);
+      const WH = 6;
+      // perimeter wall with a south gate (x = 0, width 5)
+      W.box(-19, 0, 25, 33, WH, 1.6, wallM, { texSize: 3 }); W.box(19, 0, 25, 33, WH, 1.6, wallM, { texSize: 3 });
+      W.box(0, 0, -45, 72, WH, 1.6, wallM, { texSize: 3 });
+      W.box(-35.2, 0, -10, 1.6, WH, 70, wallM, { texSize: 3 }); W.box(35.2, 0, -10, 1.6, WH, 70, wallM, { texSize: 3 });
+      W.box(0, WH - 1.4, 25, 5.5, 1.4, 1.8, wallM, { texSize: 2 });
+      const gateM = M.rust.clone();
+      const gate = new THREE.Mesh(new THREE.BoxGeometry(5, WH - 1.4, 0.3), gateM); gate.position.set(0, (WH - 1.4) / 2, 25); gate.castShadow = true; G.scene.add(gate);
+      const gateCol = W.addCollider(V(-2.5, 0, 24.7), V(2.5, WH - 1.4, 25.3), 'metal');
+      // machine-gun towers (NW and NE corners, plus gate towers)
+      for (const [x, z] of [[-31, -41], [31, -41]]) { W.box(x, 0, z, 6, 9, 6, wallM, { texSize: 3 }); W.box(x, 9, z + 2.6, 6, 1, 0.4, wallM, { collide: false }); W.box(x, 9, z - 2.6, 6, 1, 0.4, wallM, { collide: false }); }
+      for (const x of [-5.5, 5.5]) W.box(x, 0, 25, 4, 8, 4, wallM, { texSize: 3 });
+      // the keep
+      building(W, 0, -26, 22, 14, 4.2, wallM, { roofMat: M.concrete, floorMat: M.floor, doors: { s: [0.5] }, windows: { e: [0.5], w: [0.5], s: [0.2, 0.8] } });
+      wallOpen(W, -11, -27, 11, -27, 4.2, 0.3, wallM, [{ at: 0.5, w: 1.6 }]);
+      const bombM = new THREE.MeshStandardMaterial({ color: 0x3d4a3a, roughness: 0.5, metalness: 0.6 });
+      const bomb = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.45, 2.2, 16), bombM); bomb.rotation.z = Math.PI / 2; bomb.position.set(0, 0.9, -30.5); bomb.castShadow = true; G.scene.add(bomb);
+      const bombLight = new THREE.PointLight(0xff2010, 4, 6, 2); bombLight.position.set(0, 1.6, -30.5); G.scene.add(bombLight);
+      W.box(0, 0, -30.5, 2.6, 0.45, 1.2, M.darkMetal, { mat: 'metal' });
+      table(G, M, 6, -31, 1.6, 0.8); laptop(G, 6, 0.79, -31, 0);
+      // helipad with Kessler's helicopter
+      W.box(22, 0.01, -30, 12, 0.04, 12, M.asphalt, { collide: false });
+      roadPaint(G, [[19, -27, 19, -33, 0.4], [25, -27, 25, -33, 0.4], [19, -30, 25, -30, 0.4]], 0xf0f0e8);
+      const heli = helicopter(G); heli.position.set(22, 0, -30); heli.rotation.y = -0.6; W.addCollider(V(19.5, 0, -32.5), V(24.5, 2.8, -27.5), 'metal');
+      // courtyard cover
+      sandbagWall(W, M, -12, 10, 4); sandbagWall(W, M, 12, 6, 4); sandbagWall(W, M, -20, -8, 3.5, false); sandbagWall(W, M, 18, -6, 3.5, false); sandbagWall(W, M, 0, -6, 5);
+      vehicleWreck(G, M, -22, 12, 0.5, true, { burnt: false }); vehicleWreck(G, M, 24, 14, -1.2, false, { burnt: false });
+      await Promise.all([W.prop('old_military_crate', -6, 14, { mat: 'wood' }), W.prop('wooden_military_crate', 8, 16, { mat: 'wood' }), W.prop('propane_tank', -26, -16, { explosive: true }), W.prop('propane_tank', 28, -14, { explosive: true }), W.prop('Barrel_01', 14, -18), W.prop('barrel_03', -14, -20)]);
+      // approach outside the gate
+      for (const [x, z, w, h, d] of [[-14, 46, 7, 2, 4], [12, 40, 6, 2.4, 5], [-4, 34, 5, 1.4, 3], [20, 56, 7, 2.6, 5], [-24, 58, 8, 3, 6]]) W.box(x, 0, z, w, h, d, M.rock, { mat: 'concrete', texSize: 3 });
+      await scatter(G, 'namaqualand_boulder_02', spots(G, 14, { keep: [[0, 55, 6], [0, 30, 5]], clear: 2, x0: -58, x1: 58, z0: 30, z1: 68, scale: [0.8, 1.4] }), { collide: true, colRadius: 'auto', colHeight: 'auto', sink: 0.05 });
+      G._supplies = [V(-6, 0, 14), V(8, 0, 16)];
+      G.pickups.add('ammo', V(-4, 0, 36)); G.pickups.add('grenade', V(4, 0, 38));
+      prog(0.6, 'Garrisoning the fort');
+      const E = (x, z, zone, o = {}) => enemy(G, x, z, { zone, ...o });
+      for (const [x, z] of [[-4, 30], [4, 31], [-14, 34]]) E(x, z, 'outer', { yaw: Math.PI });
+      for (const [x, z, o] of [[-12, 8, {}], [12, 4, {}], [-20, -4, {}], [18, -2, {}], [0, -4, {}], [-26, 14, {}], [26, 10, {}], [-8, -12, {}], [8, -14, {}], [-4, 18, { hold: true }]]) E(x, z, 'courtyard', o);
+      for (const [x, z] of [[-31, -40], [31, -40]]) E(x, z, 'nest', { y: 9, hold: true, hp: G.diff.hp * 3, yaw: Math.PI });
+      for (const [x, z, y] of [[-6, -24, 0], [6, -23, 0], [0, -29, 0], [-7, -30, 0], [8, -28.5, 0]]) E(x, z, 'keep', { yaw: y });
+      const route = [[0, 40], [0, 30], [0, 22], [0, 10], [0, -2], [0, -12], [0, -19], [18, -24]];
+      const squad = [ally(G, -3, 56, { name: 'OKAFOR', route, slot: 1 }), ally(G, 3, 56, { name: 'VOSS', route, slot: 2 }), ally(G, 5, 58, { name: 'HAYES', route, slot: 3 })];
+      const hold = n => squad.forEach(a => { a.holdAt = n; });
+      hold(1);
+      let gateBlown = false, clock = -1, kessler = null, choice = null;
+      const blowGate = (quiet) => {
+        if (gateBlown) return; gateBlown = true; W.removeCollider(gateCol); gate.visible = false;
+        if (!quiet) { G.explode(V(0, 1.2, 25.6), 'frag', true, 2.2); G.alertEnemies(V(0, 0, 0), 200); }
+        clock = 300;
+      };
+      const showChoice = on => {
+        let el = document.getElementById('choice');
+        if (!el) { el = document.createElement('div'); el.id = 'choice'; el.innerHTML = '<div class="q">KESSLER IS UNARMED</div><div class="opts"><span><b>1</b> ARREST HIM</span><span><b>2</b> PULL THE TRIGGER</span></div>'; G.hud.el.appendChild(el); }
+        el.style.display = on ? 'block' : 'none';
+      };
+      G.ending = null;
+      return {
+        spawn: V(0, 0, 60), spawnYaw: 0, exposure: 1.05,
+        update: (G, dt) => {
+          bombLight.intensity = clock > 0 && !G.objectives[5]?.done && G.objIdx <= 5 ? ((G.time % 1) < 0.5 ? 6 : 0.5) : 0;
+          if (clock > 0 && G.objIdx <= 5 && !G.completed) {
+            clock -= dt;
+            const m = Math.floor(Math.max(0, clock) / 60), s = Math.floor(Math.max(0, clock) % 60);
+            G.hud.setObjectiveCount(`DETONATION ${m}:${String(s).padStart(2, '0')}`);
+            if (clock <= 0 && !G.failed) { G.flashWhite?.(); G.failMission('The warhead detonated.'); }
+          }
+        },
+        introScene: {
+          title: ['IRON DAWN', 'Fort Varga · 05:12'],
+          shots: [
+            { from: [60, 30, 90], to: [30, 20, 70], look: [0, 4, -10], lookTo: [0, 4, 0], dur: 7, fov: 48 },
+            { from: [-4, 1.7, 64], to: [-2, 1.7, 61], look: [0, 3, 25], dur: 4.5, fov: 55 },
+          ],
+          lines: [
+            { at: 1, who: 'HAYES', text: 'Fort Varga. Where every one of us learned to be a soldier.' },
+            { at: 6, who: 'OKAFOR', text: 'And where Kessler taught us. Let\'s finish this, Ghost.' },
+          ],
+        },
+        outro: G => {
+          const k = kessler, kp = k ? k.pos.clone() : V(20, 0, -26);
+          const cam = kp.clone().add(V(-3.4, 1.7, 3.2));
+          if (G.ending === 'execute') return {
+            title: ['ENDING: IRON DAWN', 'Ghost disappeared. Black Tide never surfaced again.'],
+            shots: [{ from: cam.toArray(), to: cam.clone().add(V(-1.5, 0.4, 1.5)).toArray(), look: kp.clone().add(V(0, 1, 0)).toArray(), dur: 12, fov: 45 }],
+            lines: [
+              { at: 1, who: 'OKAFOR', text: 'Ghost. It\'s done.' },
+              { at: 4, who: 'HAYES', text: 'They\'ll call it murder. We\'ll call it Iron Dawn.' },
+              { at: 8.5, who: 'VOSS', text: 'Come on. There\'s nobody left to go home to anyway.' },
+            ],
+          };
+          return {
+            title: ['ENDING: JUSTICE', 'Colonel Kessler was convicted of treason. Black Tide was dismantled.'],
+            shots: [{ from: cam.toArray(), to: cam.clone().add(V(-1.5, 0.4, 1.5)).toArray(), look: kp.clone().add(V(0, 1, 0)).toArray(), dur: 14, fov: 45 }],
+            lines: [
+              { at: 1, who: 'KESSLER', text: 'You think a court will hold me, Sergeant?' },
+              { at: 4.5, who: 'HAYES', text: 'It will. I have every flight, every payment, every call you ever made.' },
+              { at: 10, who: 'OKAFOR', text: 'It\'s over, Ghost. Let\'s go home.' },
+            ],
+          };
+        },
+        objectives: [
+          { type: 'interact', text: 'Plant the breaching charge on the main gate', pos: V(0, 0, 27), radius: 2, label: 'Hold <b>[F]</b> to plant the charge', time: 3, onDone: G => { if (G._restoring) blowGate(true); else { G.hud.toast('CHARGE SET — GET BACK', 2.5); setTimeout(() => blowGate(false), 3000); } } },
+          { type: 'kill', text: 'Take the courtyard', filter: e => e.zone === 'courtyard' || e.zone === 'outer', onStart: () => hold(5), restore: () => { hold(5); blowGate(true); } },
+          { type: 'kill', text: 'Silence the machine-gun towers', filter: e => e.zone === 'nest' },
+          { type: 'custom', text: 'Breach the keep', pos: V(0, 0, -17.5), check: () => G._idDoor?.done, onStart: G => { hold(6); G._idDoor = G.addBreach({ x: 0, z: -19, horiz: true, zone: 'keep', out: [0, 1.2] }); } },
+          { type: 'kill', text: 'Clear the keep', filter: e => e.zone === 'keep', onStart: () => hold(7) },
+          { type: 'interact', text: 'Disarm the warhead', pos: V(0, 0, -29.4), radius: 1.8, label: 'Hold <b>[F]</b> to disarm the warhead', time: 8, onDone: G => { clock = -1; if (!G._restoring) G.hud.toast('WARHEAD DISARMED', 3); } },
+          {
+            type: 'custom', text: 'Confront Kessler at the helipad', pos: V(19, 0, -26),
+            onStart: G => {
+              hold(8);
+              kessler = ally(G, 18.5, -26.5, { tint: 'urban', accuracy: 0, range: 0 });
+              kessler.stayPut = true; kessler.yaw = Math.PI * 0.75; if (kessler.rifle) kessler.rifle.visible = false; kessler.isVIP = true;
+            },
+            check: (G) => {
+              const near = G.player.pos.distanceTo(kessler.pos) < 6;
+              showChoice(near && !choice);
+              if (near && !choice) {
+                if (G.input.pressed.has('Digit1') || G.input.pressed.has('Numpad1')) choice = 'arrest';
+                if (G.input.pressed.has('Digit2') || G.input.pressed.has('Numpad2')) choice = 'execute';
+                if (choice) {
+                  showChoice(false); G.ending = choice;
+                  if (choice === 'execute') { audio.shot('pistol', G.player.pos, true); kessler.friendly = false; kessler.takeDamage(9999, kessler.pos.clone().sub(G.player.pos).normalize(), { point: kessler.headPos(V()), force: 4 }); }
+                  else { kessler.crouched = true; kessler.preferCrouch = true; }
+                }
+              }
+              return !!choice;
+            },
+          },
         ],
       };
     },

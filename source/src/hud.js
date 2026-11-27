@@ -101,6 +101,17 @@ export class HUD {
     this.scope.querySelector('.breath').textContent = on ? (breath ? 'BREATH HELD' : 'Hold [SHIFT] to steady') : '';
   }
 
+  cinematic(on, title) {
+    if (!this.cine) {
+      this.cine = document.createElement('div'); this.cine.id = 'cine';
+      this.cine.innerHTML = '<i class="bar t"></i><i class="bar b"></i><div class="ctitle"></div><span class="skip">SPACE · skip</span>';
+      document.body.appendChild(this.cine);
+    }
+    this.cine.classList.toggle('on', on); this.el.classList.toggle('cinemode', on);
+    const t = this.cine.querySelector('.ctitle');
+    if (on && title) { t.innerHTML = title.map((l, i) => `<div class="${i ? '' : 'big'}">${l}</div>`).join(''); t.classList.add('show'); setTimeout(() => t.classList.remove('show'), 4200); }
+    else t.classList.remove('show');
+  }
   playIntro(lines) {
     const el = this.intro; el.innerHTML = ''; el.style.opacity = 1;
     let delay = 300;

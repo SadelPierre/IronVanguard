@@ -195,7 +195,7 @@ export class Player {
     cam.rotation.order = 'YXZ';
     cam.rotation.y = this.yaw + this.recoil.y + (Math.random() - 0.5) * sh + bobX * 0.15;
     cam.rotation.x = this.pitch + this.recoil.p + (Math.random() - 0.5) * sh;
-    cam.rotation.z = (this.slide > 0 ? 0.06 : 0) + bobX * 0.2;
+    cam.rotation.z = (this.slide > 0 ? 0.06 : 0) + bobX * 0.2 + (this.G.camRoll || 0);
     // FOV
     const w = this.w; const base = S.fov;
     const zoom = w ? 1 + (w.st.zoom - 1) * this.ads : 1;

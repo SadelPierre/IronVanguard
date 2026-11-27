@@ -10,6 +10,7 @@ import { LEVELS, seedLevel } from './levels.js';
 import { Pickups } from './pickups.js';
 import { Weather } from './weather.js';
 import { Gunship } from './gunship.js';
+import { Cutscene } from './cutscene.js';
 import { keyName } from './input.js';
 import { campaign, CAST } from './campaign.js';
 
@@ -94,6 +95,8 @@ export class Game {
   }
 
   disposeLevel() {
+    if (this.cutscene) { this.cutscene.done = true; this.hud.cinematic(false); this.cutscene = null; }
+    this.controller?.dispose?.(); this.controller = null;
     this.weather?.dispose(); this.weather = null; this.breaches = []; this.gunship?.dispose(); this.gunship = null; this.timeScale = 1; clearTimeout(this._smT);
     if (this.enemies) this.enemies.clear();
     if (this.scene) {
@@ -453,22 +456,32 @@ export class Game {
     window.ivTrack?.('mission_complete', { mission: this.levelDef.id, mode: this.mode, difficulty: this.diffName, time: Math.round(this.levelTime), kills: this.player.stats.kills });
     audio.play('objective', { vol: 0.7, reverb: 0, bus: audio.music });
     this.hud.setObjective('MISSION COMPLETE', true);
-    setTimeout(() => { this.state = 'over'; this.input.unlock(); this.ui.missionComplete(this.finalStats, this.mode); }, 2500);
+    const finish = ms => setTimeout(() => { this.state = 'over'; this.input.unlock(); this.ui.missionComplete(this.finalStats, this.mode); }, ms);
+    const outro = typeof this.level.outro === 'function' ? this.level.outro(this) : this.level.outro;
+    if (outro) { const def = this.levelDef; setTimeout(() => { if (this.state === 'playing' && this.levelDef === def) this.playCutscene(outro, () => finish(400)); else if (this.levelDef === def) finish(0); }, 1400); }
+    else finish(2500);
+  }
+
+  // cinematic camera sequence; gameplay (player input, objectives) pauses while it runs
+  playCutscene(def, onDone) {
+    this.cutscene?.end();
+    this.cutscene = new Cutscene(this, def, onDone);
   }
 
   summary() {
     const s = this.player.stats;
-    return { time: this.levelTime, kills: s.kills, targets: s.targets || 0, shots: s.shots, hits: s.hits, headshots: s.headshots, acc: s.shots ? Math.min(100, Math.round(s.hits / s.shots * 100)) : 0, level: this.levelDef, difficulty: this.diff.name };
+    return { time: this.levelTime, kills: s.kills, targets: s.targets || 0, shots: s.shots, hits: s.hits, headshots: s.headshots, acc: s.shots ? Math.min(100, Math.round(s.hits / s.shots * 100)) : 0, level: this.levelDef, difficulty: this.diff.name, ending: this.ending || null };
   }
 
   update(dt) {
     if (this.state !== 'playing' || this.paused) return;
     this.time += dt; this.levelTime += dt;
     const input = this.input;
-    if (this.gunship) this.gunship.update(dt, input); else this.player.update(dt, input);
-    this.enemies.update(dt);
+    const ctl = this.cutscene || this.controller || this.gunship;
+    if (ctl) ctl.update(dt, input); else this.player.update(dt, input);
+    if (this.cutscene && !this.cutscene.live) this.enemies.animate(dt); else this.enemies.update(dt);
     this.updateGrenades(dt);
-    if (!this.failed && !this.completed) { this.updateObjective(dt); const shown = this.updateInteract(dt); this.pickups.update(dt, shown); }
+    if (!this.failed && !this.completed && !this.cutscene) { this.updateObjective(dt); const shown = this.updateInteract(dt); this.pickups.update(dt, shown); }
     this.level.update?.(this, dt);
     this.weather?.update(dt);
     this.updateBreaches(dt);

@@ -20,6 +20,11 @@ export const DEFAULT_LOADOUT = {
 
 function fmtTime(t) { const m = Math.floor(t / 60), s = Math.floor(t % 60); return `${m}:${String(s).padStart(2, '0')}`; }
 
+const ENDINGS = {
+  arrest: { name: 'ENDING: JUSTICE', text: 'Colonel Kessler stood trial for treason. Hayes\'s files dismantled Black Tide, and the team that was disavowed was quietly reinstated.' },
+  execute: { name: 'ENDING: IRON DAWN', text: 'Kessler died on the helipad at Fort Varga. Ghost disappeared the same morning. Black Tide never surfaced again.' },
+};
+
 export class UI {
   constructor() {
     this.root = $('#menu');
@@ -102,9 +107,23 @@ export class UI {
     const t = setTimeout(go, 4200); this.root.onclick = () => { this.root.onclick = null; go(); }; addEventListener('keydown', go, { once: true });
   }
 
+  credits() {
+    const sec = (h, items) => `<h3>${h}</h3>${items.map(i => `<div>${i}</div>`).join('')}`;
+    this.screen(`<div class="credits"><div class="roll">
+      <h1>IRON VANGUARD</h1><h2>BLACK TIDE</h2>
+      ${sec('A GAME BY', ['Sadel Pierre', 'built with Claude'])}
+      ${sec('CAST', ['Sgt. "Ghost" Reyes', 'Sgt. Okafor', 'Cpl. Voss', 'Lt. Hayes', 'Col. Kessler', 'Gen. Viktor Rask', 'Overlord'])}
+      ${sec('ENGINE', ['three.js (MIT)'])}
+      ${sec('ART', ['Poly Haven: textures, skies and models (CC0)', 'Mixamo: soldier and animations', 'three.js examples: soldier model, water'])}
+      ${sec('SOUND', ['The Free Firearm Sound Library, Still North Media (CC0)', 'Kokoro neural voices (Apache-2.0)', 'Everything else synthesized in the browser'])}
+      ${sec('', ['Thank you for playing.'])}
+    </div><button class="back">‹ MAIN MENU</button></div>`);
+    this.root.querySelector('.back').onclick = () => this.main();
+  }
+
   hof() {
     const H = campaign.hallOfFame();
-    const rows = H.length ? H.map((r, i) => `<tr><td>${i + 1}</td><td>${r.won ? '<b class="won">CAMPAIGN COMPLETE</b>' : 'Fell at ' + r.reached}</td><td>${DIFFICULTY[r.difficulty]?.name || ''}</td><td>${r.missions}</td><td>${r.kills}</td><td>${r.deaths}</td><td>${fmtTime(r.time)}</td><td>${new Date(r.date).toLocaleDateString()}</td></tr>`).join('') : '<tr><td colspan="8">No campaign runs yet. Your finished and failed Ironman runs appear here.</td></tr>';
+    const rows = H.length ? H.map((r, i) => `<tr><td>${i + 1}</td><td>${r.won ? '<b class="won">CAMPAIGN COMPLETE</b>' + (r.ending ? ` <small>· ${ENDINGS[r.ending]?.name || ''}</small>` : '') : 'Fell at ' + r.reached}</td><td>${DIFFICULTY[r.difficulty]?.name || ''}</td><td>${r.missions}</td><td>${r.kills}</td><td>${r.deaths}</td><td>${fmtTime(r.time)}</td><td>${new Date(r.date).toLocaleDateString()}</td></tr>`).join('') : '<tr><td colspan="8">No campaign runs yet. Your finished and failed Ironman runs appear here.</td></tr>';
     this.screen(`<div class="hdr"><button class="back">‹ BACK</button><h1>HALL OF FAME</h1></div>
       <table class="hof"><tr><th>#</th><th>Result</th><th>Difficulty</th><th>Missions</th><th>Kills</th><th>Deaths</th><th>Time</th><th>Date</th></tr>${rows}</table>`);
     this.root.querySelector('.back').onclick = () => this.main();
@@ -302,6 +321,7 @@ export class UI {
       <h1>${win ? 'MISSION COMPLETE' : 'MISSION FAILED'}</h1>
       <div class="op">${s.level.name} ${mode === 'practice' ? '<small>(practice)</small>' : ''}</div>
       ${reason ? `<p class="reason">${reason}</p>` : ''}
+      ${win && s.ending ? `<div class="ending"><div class="en">${ENDINGS[s.ending]?.name}</div><p>${ENDINGS[s.ending]?.text}</p></div>` : ''}
       ${this.statsBlock(s)}
       <div class="btns">
         <button class="primary" data-a="retry">${win ? 'REPLAY' : 'RETRY'}</button>
@@ -354,16 +374,18 @@ export class UI {
     this.screen(`<div class="results win">
       <h1>${out.finished ? 'CAMPAIGN COMPLETE' : 'MISSION COMPLETE'}</h1>
       <div class="op">${s.level.name}</div>
+      ${out.finished ? `<div class="ending"><div class="en">${ENDINGS[s.ending]?.name || 'THE END'}</div><p>${ENDINGS[s.ending]?.text || 'You have completed the Black Tide campaign.'}</p></div>` : ''}
       ${out.bonus ? `<p class="bonus">${out.bonus}</p>` : ''}
       ${this.livesRow(C.lives, C.maxLives)}
       ${this.statsBlock(s)}
-      ${out.finished ? `<p>You have completed every available mission of <b>Black Tide</b>. New missions are on the way — your run is recorded in the Hall of Fame.</p>` : `<p class="nextm">NEXT: Mission ${campaign.missionNumber(nextM.id)} — ${nextM.title}</p>`}
+      ${out.finished ? `<p class="small" style="opacity:.65">Your run is in the Hall of Fame. Choose differently at Fort Varga to see the other ending.</p>` : `<p class="nextm">NEXT: Mission ${campaign.missionNumber(nextM.id)} — ${nextM.title}</p>`}
       <div class="btns">
-        ${out.finished ? '<button class="primary" data-a="hof">HALL OF FAME</button>' : '<button class="primary" data-a="next">NEXT MISSION ›</button>'}
+        ${out.finished ? '<button class="primary" data-a="credits">CREDITS</button><button data-a="hof">HALL OF FAME</button>' : '<button class="primary" data-a="next">NEXT MISSION ›</button>'}
         <button data-a="main">MAIN MENU</button>
       </div></div>`, 'resultsS');
     const n = this.root.querySelector('[data-a=next]'); if (n) n.onclick = () => out.newAct ? this.actCard(out.nextId, () => this.onDeploy(out.nextId, 'campaign')) : this.onDeploy(out.nextId, 'campaign');
     const h = this.root.querySelector('[data-a=hof]'); if (h) h.onclick = () => this.hof();
+    const cr = this.root.querySelector('[data-a=credits]'); if (cr) cr.onclick = () => this.credits();
     this.root.querySelector('[data-a=main]').onclick = () => this.main();
   }
 

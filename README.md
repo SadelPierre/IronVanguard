@@ -40,17 +40,21 @@ The hosted site uses **Vercel Web Analytics** (enabled) and **Google Analytics 4
 |---|---------|---------|------------|
 | 01 | Boot Camp | Training range, morning | Hip-fire, long-range shooting, grenades, shoot-house clearing, timed finish |
 | 02 | Operation Dust Devil | Desert village, midday | Infiltrate, eliminate all hostiles, download the intel, survive reinforcements, reach the LZ |
-| 03 | Operation Overwatch | Desert ridge at dawn | Sniper support with a bolt-action rifle. Bullet drop and crosswind. Clear the rooftops, cover your squad, kill the enemy sniper, hold the ridge |
+| 03 | Operation Overwatch | Desert ridge at dawn | Sniper support with bullet drop and crosswind. Clear the rooftops, cover your squad, kill the enemy sniper, hold the ridge |
 | 04 | Operation Iron Harbor | Dockyard at sunset | Plant C4 on two caches, get clear of the blast, fight the QRF to the extraction boat |
-| 05 | Operation Deep Freeze | Arctic radar station, night blizzard | Stealth with suppressed weapons. Jam the comms mast, breach the control room (slow motion), steal the flight logs, blow the radar dome. If the alarm goes up, the hangar empties |
-| 06 | Angel of Death | AC-130 gunship over the village | Thermal camera with 25 mm, 40 mm and 105 mm guns. Cover your squad (IR strobes) to the LZ and destroy the technicals. Three friendly-fire hits fail the mission |
-| 07 | Operation Midnight | Night-time city streets | Clear the safehouse, free the hostage, escort them to extraction. Night vision and a flashlight are available |
-| 08 | Burn Notice | Old Town at dawn, thunderstorm | Escape the burning safehouse, breach the door, beat the kill team, fight down the street to Okafor |
+| 05 | Operation Deep Freeze | Arctic radar station, night blizzard | Stealth with suppressed weapons: jam the mast, breach the control room, steal the flight logs, blow the radar dome |
+| 06 | Angel of Death | AC-130 gunship | Thermal camera, three guns. Cover your squad to the LZ and destroy the technicals. No friendly fire |
+| 07 | Operation Midnight | Night-time city streets | Clear the safehouse, free the hostage, escort them to extraction |
+| 08 | Burn Notice | Old Town at dawn, thunderstorm | Escape the burning safehouse, breach the door, beat the kill team, reach Okafor |
+| 09 | Black Tide | Cargo ship in a North Sea storm | Board the ship, search the hold, breach the bridge, steal the navigation log, sink her and jump |
+| 10 | Convoy | Mountain pass at sunset | Plant an IED, ambush the warhead convoy from the ridge, kill the escort and reinforcements, secure the warhead |
+| 11 | Skyfall | Airfield at night | HALO jump from 700 m, clear the hangar, kill the runway lights, shoot out the engines of Rask's plane before it takes off |
+| 12 | Iron Dawn | Fortress at sunrise | Blow the gate, silence the machine-gun towers, breach the keep, disarm the warhead before the clock runs out, then decide Kessler's fate |
 | — | Last Stand (bonus) | Desert village at dusk | Survive 5 waves and resupply at the ammo crate |
 
-Black Tide, Convoy, Skyfall and Iron Dawn are coming in the next update.
+**Cutscenes and endings:** every new mission opens and closes with an in-engine cinematic (press **Space** to skip). Iron Dawn has **two endings**, depending on what you do with Kessler. After the campaign, the credits roll and your run goes into the Hall of Fame with the ending you chose.
 
-**Squadmates** fight beside you in Overwatch, Angel of Death and Burn Notice. **Breach and clear:** hold the interact key at a marked door to kick it in, which triggers slow motion. **Weather:** snow (Deep Freeze), rain with lightning (Burn Notice), and wind that moves your sniper rounds.
+**Squadmates** fight beside you in many missions. **Breach and clear:** hold the interact key at a marked door to kick it in, which triggers slow motion. **Weather:** snow, rain with lightning, wind and dust. **HALO jump:** steer with WASD and the mouse, open the chute with Space.
 
 ## Loadout (menu: LOADOUT)
 - **Primary weapons:** M4A1, AK-47, MP5, M870 shotgun, M249 LMG, Bolt-Action 7.62 sniper (scoped; hold breath with Shift)

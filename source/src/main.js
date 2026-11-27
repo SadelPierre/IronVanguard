@@ -17,7 +17,7 @@ const hud = new HUD();
 const ui = new UI();
 engine.setQuality(ui.settings.quality, ui.settings.renderScale);
 const game = new Game(engine, input, hud, ui, ui.settings);
-window.__game = game; window.__audio = audio; // handy for debugging from the console
+window.__game = game; window.__audio = audio; window.__ui = ui; // handy for debugging from the console
 
 ui.input = input;
 input.setBinds(ui.settings.binds);
@@ -51,9 +51,11 @@ async function deploy(levelId, save = null, mode = 'practice') {
     ui.show(false); hud.show(true);
     input.enabled = true; input.lock();
     game.paused = false;
-    hud.playIntro(def.intro);
     hud.setLives(mode === 'campaign' ? campaign.state.lives : null, campaign.state?.maxLives);
-    if (def.hint) setTimeout(() => hud.showHint(def.hint, 9), 1200);
+    const go = () => { hud.playIntro(def.intro); if (def.hint) setTimeout(() => hud.showHint(def.hint, 9), 1200); };
+    const scene = !save && game.level.introScene;
+    if (scene && !window.__skipCine) game.playCutscene(typeof scene === 'function' ? scene(game) : scene, () => { game.level.onIntroDone?.(game); go(); });
+    else { if (scene) game.level.onIntroDone?.(game); go(); }
   });
 }
 ui.onDeploy = (id, mode = 'practice') => deploy(id, null, mode);
@@ -99,6 +101,7 @@ document.getElementById('boot')?.remove();
 
 // debug/test hook: index.html#play=<levelId>&q=<quality>
 const auto = new URLSearchParams(location.hash.slice(1));
+window.__skipCine = !!auto.get('test') && !auto.get('cine');
 if (auto.get('q')) { ui.settings.quality = auto.get('q'); engine.setQuality(auto.get('q'), 1); }
 if (auto.get('play')) deploy(auto.get('play'), null, auto.get('mode') || 'practice').then(() => document.querySelector('.go')?.click());
 
