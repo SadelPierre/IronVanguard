@@ -244,7 +244,9 @@ export class Game {
       if (!e.alive || (e.hostage && !this.hitHostages)) continue;
       if (e.friendly) { if (byPlayer && e.pos.distanceTo(pos) < 8 * scale * 0.8) this.onFriendlyFire?.(e); continue; }
       const d = e.pos.distanceTo(pos);
-      if (d < R && this.world.lineOfSight(pos.clone().add(V(0, 0.4, 0)), e.pos.clone().add(V(0, 1, 0)))) {
+      // heavy gunship rounds (40mm/105mm) punch through the thin roofs of village houses
+      const pierce = this.gunship && scale >= 0.55;
+      if (d < R && (pierce || this.world.lineOfSight(pos.clone().add(V(0, 0.4, 0)), e.pos.clone().add(V(0, 1, 0))))) {
         const dmg = 160 * (1 - d / R) + 20;
         if (e.hostage) { this.failMission('The hostage was killed.'); continue; }
         this.effects.blood(e.pos.clone().add(V(0, 1, 0)), e.pos.clone().sub(pos).setY(0.3).normalize(), 1.6);

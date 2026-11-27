@@ -86,7 +86,24 @@ export class Gunship {
     this.hud();
   }
 
+  // red target boxes on the last few hostiles of the current objective (the normal waypoint is hidden in this view)
+  markTargets() {
+    const G = this.G, o = G.objectives[G.objIdx];
+    let box = this.el.querySelector('.tgts'); if (!box) { box = document.createElement('div'); box.className = 'tgts'; this.el.appendChild(box); }
+    const list = o && o.type === 'kill' && o.left !== undefined && o.left <= 4 ? G.enemies.list.filter(e => e.alive && !e.friendly && !e.hostage && (!o.filter || o.filter(e))) : [];
+    while (box.children.length < list.length) { const d = document.createElement('div'); d.innerHTML = '<i></i><span>TGT</span>'; box.appendChild(d); }
+    const cam = G.engine.camera, w = innerWidth, h = innerHeight;
+    [...box.children].forEach((d, i) => {
+      const e = list[i]; if (!e) { d.style.display = 'none'; return; }
+      const p = e.pos.clone().add(new THREE.Vector3(0, 1, 0)).project(cam);
+      const on = p.z < 1 && Math.abs(p.x) < 1 && Math.abs(p.y) < 1;
+      const x = Math.max(24, Math.min(w - 24, (p.x * 0.5 + 0.5) * w)), y = Math.max(24, Math.min(h - 24, (-p.y * 0.5 + 0.5) * h));
+      d.style.display = 'block'; d.style.left = x + 'px'; d.style.top = y + 'px'; d.className = on ? '' : 'edge';
+    });
+  }
+
   hud() {
+    this.markTargets();
     const g = GUNS[this.gun], a = this.ammo[this.gun];
     const r = this.reloadT[this.gun];
     this.el.querySelector('.gn').textContent = g.name;

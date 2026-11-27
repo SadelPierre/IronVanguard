@@ -856,7 +856,14 @@ export const LEVELS = [
       const squad = [ally(G, -3, 64, { name: 'OKAFOR', route, slot: 0, speed: 2.6 }), ally(G, 3, 64, { route, slot: 1, speed: 2.6 }), ally(G, -5, 61, { route, slot: 2, speed: 2.6 }), ally(G, 5, 61, { route, slot: 3, speed: 2.6 })];
       const hold = n => squad.forEach(a => { a.holdAt = n; });
       hold(2);
-      const wave = (zone, pts) => pts.forEach(([x, z, o]) => { const e = enemy(G, x, z, { zone, state: 'combat', ...(o || {}) }); e.lastSeen = squad[0].pos.clone(); e.lastSeenT = G.time; e.awareness = 1; });
+      // spawn under open sky so the gunship can see them (nudge points that fall inside houses)
+      const openSky = (x, z) => {
+        const W = G.world, roofed = (px, pz) => !!W.raycast(V(px, 1.2, pz), V(0, 1, 0), 30) || W.colliders.some(c => !c.noRay && px > c.min.x - 0.5 && px < c.max.x + 0.5 && pz > c.min.z - 0.5 && pz < c.max.z + 0.5 && c.min.y < 1.5 && c.max.y > 0.3);
+        if (!roofed(x, z)) return [x, z];
+        for (let r = 2; r <= 16; r += 2) for (let k = 0; k < 8; k++) { const a = k * Math.PI / 4, px = x + Math.cos(a) * r, pz = z + Math.sin(a) * r; if (!roofed(px, pz)) return [px, pz]; }
+        return [x, z];
+      };
+      const wave = (zone, pts) => pts.forEach(([x0, z0, o]) => { const [x, z] = openSky(x0, z0); const e = enemy(G, x, z, { zone, state: 'combat', ...(o || {}) }); e.lastSeen = squad[0].pos.clone(); e.lastSeenT = G.time; e.awareness = 1; });
       wave('w1', [[-6, 31], [6, 31.5], [-16, 34], [14, 35], [-24, 28], [22, 27], [-3, 24], [4, 22], [-30, 33], [28, 34]]);
       // technicals
       const techs = [];
