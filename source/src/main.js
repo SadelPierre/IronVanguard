@@ -7,6 +7,8 @@ import { HUD } from './hud.js';
 import { UI } from './ui.js';
 import { Game } from './game.js';
 import { career } from './progression.js';
+import { Gamepad } from './gamepad.js';
+import { setupTouch } from './touch.js';
 import { audio } from './audio.js';
 import { LEVELS } from './levels.js';
 import { campaign } from './campaign.js';
@@ -82,11 +84,15 @@ addEventListener('keydown', e => { if (e.code === 'Escape' || e.code === 'KeyP')
 // first interaction unlocks audio
 addEventListener('pointerdown', () => { audio.init(); applySettings(true); if (game.state === 'menu' && !audio._music) audio.startMusic('menu'); }, { once: true });
 
+const pad = new Gamepad({ input, ui, game, pause: () => pause() });
+const touch = setupTouch({ input, ui, game, pause: () => pause() });
+window.__pad = pad;
 let last = performance.now();
 function frame(now) {
   requestAnimationFrame(frame);
   if (window.__manual) return;
   const dt = Math.min(0.05, (now - last) / 1000); last = now;
+  pad.poll(dt);
   if (game.state === 'playing') {
     if (!game.paused) { game.update(dt * (game.timeScale || 1)); input.endFrame(); }
     engine.render(dt);

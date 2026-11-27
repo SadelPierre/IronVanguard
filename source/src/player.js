@@ -55,10 +55,34 @@ export class Player {
 
   get w() { return this.weapons[this.cur]; }
 
+  // Controller aim assist (like console shooters): a gentle snap toward the nearest visible enemy when you
+  // start aiming down sights, and slower turning while the crosshair is over one.
+  aimAssist(dt, input) {
+    const G = this.G; this.aimSlow = false;
+    const eye = this.eyePos(new THREE.Vector3()), fwd = this.forward(new THREE.Vector3());
+    let best = null, bestA = 0.14;
+    for (const e of G.enemies.list) {
+      if (!e.alive || e.friendly || e.hostage) continue;
+      const c = e.pos.clone().add(new THREE.Vector3(0, e.crouched ? 0.9 : 1.3, 0)), d = c.clone().sub(eye), dist = d.length();
+      if (dist > 70) continue;
+      const ang = Math.acos(Math.max(-1, Math.min(1, d.dot(fwd) / dist)));
+      if (ang < bestA && G.world.lineOfSight(eye, c)) { bestA = ang; best = c; }
+    }
+    if (!best) return;
+    this.aimSlow = bestA < 0.06;
+    if (input.actHit('aim') || (this.ads > 0.2 && this.ads < 0.85)) {
+      const d = best.clone().sub(eye);
+      const ty = Math.atan2(-d.x, -d.z), tp = Math.atan2(d.y, Math.hypot(d.x, d.z));
+      let dy = ty - this.yaw; dy = Math.atan2(Math.sin(dy), Math.cos(dy));
+      const k = Math.min(1, dt * 9);
+      this.yaw += dy * k; this.pitch += (tp - this.pitch) * k;
+    }
+  }
+
   spawn(p, yaw = 0) { this.pos.copy(p); this.vel.set(0, 0, 0); this.yaw = yaw; this.pitch = 0; this.alive = true; this.health = this.maxHealth; }
 
   damage(amount, fromPos) {
-    if (!this.alive || this.G.godMode) return;
+    if (!this.alive || this.G.godMode || this.godMode) return;
     this.health -= amount; this.lastHit = this.time; this.damageFlash = Math.min(1, this.damageFlash + amount / 60);
     this.shake = Math.min(1, this.shake + amount / 80);
     if (fromPos) this.G.hud.damageDir(fromPos, this);
@@ -91,29 +115,37 @@ export class Player {
     const ak = 2.4 * (S.sensitivity || 1) * (1 - this.ads * 0.6) * dt;
     if (input.act('lookLeft')) this.yaw += ak; if (input.act('lookRight')) this.yaw -= ak;
     if (input.act('lookUp')) this.pitch += ak * 0.7; if (input.act('lookDown')) this.pitch -= ak * 0.7;
+    // analog look (controller right stick / touch), slowed while aiming down sights
+    if (input.look.x || input.look.y) {
+      const ls = (S.sensitivity || 1) * (1 - this.ads * (1 - 1 / Math.max(1, w.st.zoom * 0.8))) * dt * (this.aimSlow ? 0.55 : 1);
+      this.yaw -= input.look.x * ls; this.pitch += input.look.y * ls * (S.invertY ? -1 : 1);
+    }
+    if (input.padActive) this.aimAssist(dt, input);
     this.pitch -= input.mouse.dy * sens * (S.invertY ? -1 : 1);
     this.pitch = Math.max(-1.5, Math.min(1.5, this.pitch));
     this.swayVel.x += input.mouse.dx * 0.00004; this.swayVel.y += input.mouse.dy * 0.00004;
 
     // ---------- movement ----------
-    const fwd = (input.act('forward') ? 1 : 0) - (input.act('back') ? 1 : 0);
-    const str = (input.act('right') ? 1 : 0) - (input.act('left') ? 1 : 0);
+    const fwd = Math.max(-1, Math.min(1, (input.act('forward') ? 1 : 0) - (input.act('back') ? 1 : 0) + input.axis.y));
+    const str = Math.max(-1, Math.min(1, (input.act('right') ? 1 : 0) - (input.act('left') ? 1 : 0) + input.axis.x));
+    const mag = Math.min(1, Math.hypot(fwd, str));
     const moving = fwd || str;
-    const wantCrouch = input.act('crouch');
+    const wantCrouch = input.act('crouch') || input.crouchLatch;
     if (input.actHit('crouch')) {
       if (this.sprint && this.onGround && this.slide <= 0) { this.slide = 0.75; this.slideDir = V(-Math.sin(this.yaw), 0, -Math.cos(this.yaw)); audio.play('step_dirt', { vol: 0.8, rate: 0.6 }); }
     }
     this.crouch = wantCrouch;
     const ceilingLow = this._ceiling !== undefined && this._ceiling - this.pos.y < 1.8;
     if (ceilingLow) this.crouch = true;
-    this.sprint = input.act('sprint') && fwd > 0 && !this.crouch && this.ads < 0.3 && !(w.st.scope && this.aimHeld);
+    if (input.crouchLatch && input.act('sprint')) input.crouchLatch = false;
+    this.sprint = input.act('sprint') && fwd > 0.5 && !this.crouch && this.ads < 0.3 && !(w.st.scope && this.aimHeld);
     if (this.sprint && this.fireHeld) this.sprint = false;
     if (this.sprint && this.reloading && !this.perks.includes('lightweight')) { /* allowed, CoD style */ }
     let speed = this.crouch ? 2.3 : this.sprint ? 7.0 : 4.5;
     speed *= w.st.move * this.speedMul * (1 - this.ads * 0.45);
     const sy = Math.sin(this.yaw), cyw = Math.cos(this.yaw);
     _d.set(-sy * fwd + cyw * str, 0, -cyw * fwd - sy * str);
-    if (_d.lengthSq() > 0) _d.normalize().multiplyScalar(speed);
+    if (_d.lengthSq() > 0) _d.normalize().multiplyScalar(speed * Math.max(0.35, mag));
     if (this.slide > 0) {
       this.slide -= dt; this.crouch = true;
       const sv = this.slideDir.clone().multiplyScalar(9 * Math.max(0, this.slide / 0.75) + 2);

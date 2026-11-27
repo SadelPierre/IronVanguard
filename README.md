@@ -25,6 +25,28 @@ You don't need to install anything or run a web server. Keep the `assets` folder
 - **MISSION SELECT** replays any mission for practice, with no lives at risk. **Last Stand** is a bonus mode.
 - The story is told through briefings and fully voiced radio chatter with subtitles. Every line was recorded with the free Kokoro neural voice model (Apache-2.0) and plays through a radio filter. Enemies shout recorded callouts. You can switch voices off in Settings.
 
+## Team Deathmatch
+Main menu → **TEAM DEATHMATCH**: you and 4 Vanguard squadmates against 6 Black Tide bots, with unlimited respawns. The first team to 40 kills wins, or the team ahead when the 10-minute clock runs out. There are two maps (Village and Old Town), and you choose the bot difficulty. You earn XP, and wins post to the leaderboards.
+
+## Controller
+Plug in or pair an Xbox or PlayStation controller and press any button.
+| Control | Action |
+|---|---|
+| Left stick / Right stick | Move / Look (with aim assist when aiming) |
+| RT / LT | Fire / Aim |
+| A | Jump (and skip cutscenes) |
+| B | Crouch (toggle) |
+| X | Reload (hold to pick up or interact) |
+| Y | Switch weapon |
+| RB / LB | Frag / Flashbang |
+| L3 / R3 | Sprint / Knife |
+| D-pad up / down / left | Night vision / Flashlight / Fire mode |
+| Start | Pause |
+In menus, the D-pad or left stick moves the highlight, **A** selects and **B** goes back. In the Iron Dawn finale, **X** arrests Kessler and **Y** shoots him.
+
+## Phones and tablets
+Open the site on a phone or tablet and turn it sideways. A move stick appears wherever you touch the left side, and you drag on the right side to look. The buttons are FIRE (drag it to aim while shooting), AIM, JUMP, CROUCH, RELOAD, USE, NADE, SWAP, KNIFE and NVG. Tap the screen to skip a cutscene. Phones start on Low graphics, and the game goes full screen when a mission starts. The full download is about 30 MB, so use Wi-Fi.
+
 ## Career, unlocks and leaderboards
 - **XP and 20 ranks** (Private → General). Earn XP for kills (+100), headshots (+50), finishing missions (doubled on Veteran), flawless runs, 60%+ accuracy and **challenges** (CAREER screen).
 - **Unlocks:** you start with the M4A1, the pistol, iron sights and two perks. Ranking up unlocks the MP5, M870, AK-47, sniper rifle, magnum, M249, every optic and attachment, Semtex, smoke and the remaining perks. Missions that hand you a specific weapon still give it to you.

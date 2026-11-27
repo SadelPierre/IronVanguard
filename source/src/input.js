@@ -46,6 +46,12 @@ export class Input {
     this.mouse = { dx: 0, dy: 0, left: false, right: false, leftPressed: false, rightPressed: false, wheel: 0 };
     this.locked = false; this.enabled = false; this.fallback = false;
     this.binds = defaultBinds();
+    // analog + virtual inputs (gamepad and touch screen feed these)
+    this.axis = { x: 0, y: 0 };      // movement, -1..1 (y = forward)
+    this.look = { x: 0, y: 0 };      // look rate in rad/s (x = right, y = up)
+    this.virt = new Set(); this.virtPressed = new Set();
+    this.crouchLatch = false;        // toggle crouch for pad/touch
+    this.padActive = false; this.touchActive = false;
     addEventListener('keydown', e => {
       if (this.capture) { e.preventDefault(); this.capture(e.code); return; }
       if (!this.enabled || /^(INPUT|TEXTAREA)$/.test(e.target?.tagName || '')) return;
@@ -79,9 +85,13 @@ export class Input {
   release(code) { this.keys.delete(code); this.released.add(code); }
   setBinds(b) { this.binds = { ...defaultBinds(), ...(b || {}) }; }
   // action queries
-  act(a) { const b = this.binds[a]; return !!b && b.some(k => k && this.keys.has(k)); }
-  actHit(a) { const b = this.binds[a]; return !!b && b.some(k => k && this.pressed.has(k)); }
+  act(a) { const b = this.binds[a]; return (!!b && b.some(k => k && this.keys.has(k))) || this.virt.has(a); }
+  actHit(a) { const b = this.binds[a]; return (!!b && b.some(k => k && this.pressed.has(k))) || this.virtPressed.has(a); }
+  vdown(a) { if (!this.virt.has(a)) this.virtPressed.add(a); this.virt.add(a); }
+  vup(a) { this.virt.delete(a); }
+  vtap(a) { this.virtPressed.add(a); }
   lock() {
+    if (this.touchActive) { this.fallback = true; return; }
     try {
       const p = this.canvas.requestPointerLock({ unadjustedMovement: true });
       if (p && p.catch) p.catch(() => { try { const p2 = this.canvas.requestPointerLock(); if (p2 && p2.catch) p2.catch(() => { this.fallback = true; document.body.classList.add('nocursor'); }); } catch (e) { this.fallback = true; } });
@@ -90,5 +100,5 @@ export class Input {
   unlock() { if (document.pointerLockElement) document.exitPointerLock(); document.body.classList.remove('nocursor'); }
   down(code) { return this.keys.has(code); }
   hit(code) { return this.pressed.has(code); }
-  endFrame() { this.pressed.clear(); this.released.clear(); this.mouse.dx = this.mouse.dy = 0; this.mouse.leftPressed = this.mouse.rightPressed = false; this.mouse.wheel = 0; }
+  endFrame() { this.virtPressed.clear(); this.pressed.clear(); this.released.clear(); this.mouse.dx = this.mouse.dy = 0; this.mouse.leftPressed = this.mouse.rightPressed = false; this.mouse.wheel = 0; }
 }

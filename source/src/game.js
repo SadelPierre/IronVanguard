@@ -11,6 +11,7 @@ import { Pickups } from './pickups.js';
 import { Weather } from './weather.js';
 import { Gunship } from './gunship.js';
 import { Cutscene } from './cutscene.js';
+import { TDM } from './tdm.js';
 import { keyName } from './input.js';
 import { campaign, CAST } from './campaign.js';
 
@@ -55,6 +56,7 @@ export class Game {
     this.level = { ...this.level, ...L };
     this.objectives = L.objectives;
     this.world.buildNav(0.8);
+    this.tdm = L.tdm ? new TDM(this, L.tdm) : null;
     onProgress(0.85, 'Issuing equipment');
     let lo = save && save.weapons ? { ...loadout, primary: save.weapons[0].id, secondary: save.weapons[1].id } : loadout;
     if (def.loadout && !(save && save.weapons)) lo = { ...lo, ...def.loadout, att: { ...lo.att, ...(def.loadout.att || {}) } };
@@ -96,7 +98,7 @@ export class Game {
 
   disposeLevel() {
     if (this.cutscene) { this.cutscene.done = true; this.hud.cinematic(false); this.cutscene = null; }
-    this.engine.setDOF?.(false); this.camRoll = 0;
+    this.engine.setDOF?.(false); this.camRoll = 0; this.tdm = null; if (this.enemies) this.enemies.tdm = false;
     this.controller?.dispose?.(); this.controller = null;
     this.weather?.dispose(); this.weather = null; this.breaches = []; this.gunship?.dispose(); this.gunship = null; this.timeScale = 1; clearTimeout(this._smT);
     if (this.enemies) this.enemies.clear();
@@ -442,6 +444,7 @@ export class Game {
   // ---------------------------------------------------------------- flow
   onPlayerDeath() {
     if (this.failed || this.completed) return;
+    if (this.tdm) { this.tdm.onPlayerDeath(); return; }
     this.failMission(this.level.deathText || 'You were killed in action.');
   }
 
@@ -483,6 +486,7 @@ export class Game {
     const ctl = this.cutscene || this.controller || this.gunship;
     if (ctl) ctl.update(dt, input); else this.player.update(dt, input);
     if (this.cutscene && !this.cutscene.live) this.enemies.animate(dt); else this.enemies.update(dt);
+    if (this.tdm && !this.cutscene) this.tdm.update(dt);
     this.updateGrenades(dt);
     if (!this.failed && !this.completed && !this.cutscene) { this.updateObjective(dt); const shown = this.updateInteract(dt); this.pickups.update(dt, shown); }
     this.level.update?.(this, dt);

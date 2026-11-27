@@ -531,7 +531,7 @@ export class Enemy {
         if (this.grenadeCd <= 0 && since > 2 && since < 8 && this.lastSeen && this.pos.distanceTo(this.lastSeen) < 25 && this.pos.distanceTo(this.lastSeen) > 8) {
           this.grenadeCd = 18 + Math.random() * 15; this.throwGrenade(this.lastSeen);
         }
-        if (this.allyTarget) { this.faceTo(this.allyTarget.pos, dt, 8); wantAim = 1; this.suppressT -= dt; if (this.suppressT <= 0 && this.reloadT <= 0) { this.suppressT = 0.9 + Math.random() * 1.4; this.suppress(this.allyTarget.pos.clone().add(V(0, -0.4, 0))); } }
+        if (this.allyTarget) { this.faceTo(this.allyTarget.pos, dt, 8); wantAim = 1; this.suppressT -= dt; if (this.suppressT <= 0 && this.reloadT <= 0) { this.suppressT = 0.9 + Math.random() * 1.4; this.suppress(this.allyTarget.pos.clone().add(V(0, -0.4, 0))); if (this.mgr.tdm) { const t = this.allyTarget; for (let k = 0; k < 3; k++) if (Math.random() < this.G.diff.acc * 0.9) setTimeout(() => { if (t.alive && this.alive && !(this.stun > 0)) t.takeDamage(this.G.diff.dmg * 1.6, t.pos.clone().sub(this.pos).normalize(), { point: t.pos.clone().add(V(0, 1.3, 0)), force: 3 }); }, 120 + k * 110); } } }
         // suppressive fire at the player's last known position (keeps them pinned behind cover)
         if (this.lastSeen && since < 5 && since > 0.6 && this.role !== 'flank' && this.reloadT <= 0 && this.pos.distanceTo(this.lastSeen) < 45) {
           this.suppressT -= dt;
@@ -591,6 +591,11 @@ export class Enemy {
       // check head and chest
       const chest = P.pos.clone().add(V(0, P.crouch ? 0.7 : 1.2, 0));
       can = (G.world.lineOfSight(eye, pEye) || G.world.lineOfSight(eye, chest)) && !G.effects.smokeBlocks(eye, pEye);
+    }
+    // Team Deathmatch: shoot at whichever opponent is closer, not always the player
+    if (can && this.mgr.tdm && this.mgr.allies?.length) {
+      const pd = P.pos.distanceTo(this.pos);
+      if (this.mgr.allies.some(a => a.alive && a.pos.distanceTo(this.pos) < pd * 0.8 && G.world.lineOfSight(eye, a.pos.clone().add(V(0, 1.4, 0))))) can = false;
     }
     this.seesPlayer = can && this.awareness >= 1;
     // otherwise look for squadmates to fight
@@ -742,7 +747,7 @@ export class Enemy {
         if (Math.random() < (this.accuracy ?? 0.22)) {
           const d = aim.clone().sub(m).normalize();
           G.effects.blood(aim, d, 1);
-          if (t.takeDamage(28 + Math.random() * 14, d, { point: aim, force: 3.5 })) { G.onEnemyKilled?.(t); if (Math.random() < 0.5) this.callout('kill'); }
+          if (t.takeDamage((28 + Math.random() * 14) * (this.dmgMul ?? 1), d, { point: aim, force: 3.5 })) { G.onEnemyKilled?.(t); if (Math.random() < 0.5) this.callout('kill'); }
         }
         G.alertEnemies(this.pos, 35, this);
       }

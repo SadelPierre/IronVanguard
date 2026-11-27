@@ -5,7 +5,7 @@
 // POST /api/leaderboard  { board, name, score, diff, time, kills }
 import { list, put } from '@vercel/blob';
 
-const BOARDS = new Set(['bootcamp', 'dustdevil', 'overwatch', 'ironharbor', 'deepfreeze', 'angel', 'midnight', 'burnnotice', 'blacktide', 'convoy', 'skyfall', 'irondawn', 'laststand', 'campaign']);
+const BOARDS = new Set(['tdm_village', 'tdm_oldtown', 'bootcamp', 'dustdevil', 'overwatch', 'ironharbor', 'deepfreeze', 'angel', 'midnight', 'burnnotice', 'blacktide', 'convoy', 'skyfall', 'irondawn', 'laststand', 'campaign']);
 const DIFFS = new Set(['recruit', 'regular', 'hardened', 'veteran']);
 const MAX_SCORE = 400000;
 const HIDDEN = new Set(['testpost']); // moderation: callsigns never shown (lower case)

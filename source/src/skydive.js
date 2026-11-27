@@ -31,6 +31,8 @@ export class Skydive {
     let ax = 0, az = 0;
     if (input.act('forward')) { ax += fx; az += fz; } if (input.act('back')) { ax -= fx; az -= fz; }
     if (input.act('right')) { ax += rx; az += rz; } if (input.act('left')) { ax -= rx; az -= rz; }
+    ax += fx * input.axis.y + rx * input.axis.x; az += fz * input.axis.y + rz * input.axis.x;
+    this.yaw -= input.look.x * dt; this.pitch += input.look.y * dt * 0.8;
     const alt = this.pos.y;
     if (!this.chute && (alt < this.chuteAt * 0.45 || (alt < 650 && input.actHit('jump')))) {
       this.chute = true; this.chuteT = 0; audio.play('switch', { vol: 1, rate: 0.5 }); audio.play('bounce', { vol: 0.6, rate: 0.4 }); P.shake = 0.8;

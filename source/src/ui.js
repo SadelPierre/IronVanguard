@@ -60,6 +60,63 @@ export class UI {
     this.root.innerHTML = `<div class="bg"></div><div class="screen">${html}</div>`;
   }
 
+  // ---- controller navigation for menus ----
+  padItems() {
+    return [...this.root.querySelectorAll('button, .opt:not(.locked), .card:not(.soon), .bind, input, .rankbadge, [data-a]')]
+      .filter((el, i, arr) => arr.indexOf(el) === i && el.offsetParent !== null && !el.closest('.opt.locked'));
+  }
+  padNav(dir) {
+    const items = this.padItems(); if (!items.length) return;
+    let cur = this.root.querySelector('.padfocus');
+    if (!cur || !items.includes(cur)) { this.padFocus(items.find(e => e.classList.contains('primary')) || items[0]); return; }
+    const r0 = cur.getBoundingClientRect(), c0 = [r0.left + r0.width / 2, r0.top + r0.height / 2];
+    let best = null, bd = 1e9;
+    for (const el of items) {
+      if (el === cur) continue;
+      const r = el.getBoundingClientRect(), c = [r.left + r.width / 2, r.top + r.height / 2], dx = c[0] - c0[0], dy = c[1] - c0[1];
+      const ok = dir === 'up' ? dy < -4 : dir === 'down' ? dy > 4 : dir === 'left' ? dx < -4 : dx > 4;
+      if (!ok) continue;
+      const along = dir === 'up' || dir === 'down' ? Math.abs(dy) : Math.abs(dx), across = dir === 'up' || dir === 'down' ? Math.abs(dx) : Math.abs(dy);
+      const d = along + across * 2.2;
+      if (d < bd) { bd = d; best = el; }
+    }
+    if (best) this.padFocus(best);
+  }
+  padFocus(el) { this.root.querySelectorAll('.padfocus').forEach(e => e.classList.remove('padfocus')); el.classList.add('padfocus'); el.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' }); if (el.tagName === 'INPUT') el.focus(); }
+  padSelect() {
+    const el = this.root.querySelector('.padfocus');
+    if (!el) { this.padNav('down'); return; }
+    if (el.tagName === 'INPUT') { el.focus(); return; }
+    const sel = el.dataset.a || el.dataset.l || el.dataset.w || el.className;
+    el.click();
+    // keep focus on the same logical item after the screen re-renders
+    setTimeout(() => { if (this.root.querySelector('.padfocus')) return; const again = this.padItems().find(e => (e.dataset.a || e.dataset.l || e.dataset.w || e.className.replace(' padfocus', '')) === sel.replace(' padfocus', '')); if (again) this.padFocus(again); }, 30);
+  }
+  padBack() { const b = this.root.querySelector('.back') || this.root.querySelector('[data-a=resume]') || this.root.querySelector('[data-a=main]'); if (b) b.click(); }
+  toastMenu(text) {
+    let t = document.getElementById('mtoast'); if (!t) { t = document.createElement('div'); t.id = 'mtoast'; document.body.appendChild(t); }
+    t.textContent = text; t.style.opacity = 1; clearTimeout(this._mt); this._mt = setTimeout(() => { t.style.opacity = 0; }, 2600);
+  }
+
+  deathmatch(sel = 'tdm_village') {
+    const maps = LEVELS.filter(l => l.tdmMap);
+    const lv = maps.find(m => m.id === sel) || maps[0];
+    const cards = maps.map((l, i) => `<div class="card ${l.id === lv.id ? 'sel' : ''}" data-l="${l.id}"><div class="num">${String(i + 1).padStart(2, '0')}</div><div><div class="cn">${l.name.replace('TEAM DEATHMATCH: ', '')}</div><div class="cs">${l.location} · ${l.time}</div></div>${career.d.best[l.id] ? `<div class="done">BEST ${career.d.best[l.id].score.toLocaleString()}</div>` : ''}</div>`).join('');
+    const diffs = Object.entries(DIFFICULTY).map(([k, d]) => `<div class="opt ${this.settings.difficulty === k ? 'sel' : ''}" data-d="${k}">${d.name}</div>`).join('');
+    this.screen(`<div class="hdr"><button class="back">‹ BACK</button><h1>TEAM DEATHMATCH</h1><span class="note">Earns XP and posts to the leaderboards</span></div>
+      <div class="cols"><div class="list">${cards}</div>
+      <div class="brief"><div class="op">${lv.name.replace('TEAM DEATHMATCH: ', '')}</div><div class="loc">${lv.location.toUpperCase()} · ${lv.time.toUpperCase()}</div>
+        <p>${lv.briefing}</p>
+        <div class="lbl">BOT DIFFICULTY</div><div class="opts">${diffs}</div>
+        <div class="lo">LOADOUT: <b>${WEAPONS[this.loadout.primary].name}</b> + <b>${WEAPONS[this.loadout.secondary].name}</b> <button class="small" data-a="lo">EDIT</button></div>
+        <button class="primary deploy">DEPLOY ›</button></div></div>`);
+    this.root.querySelector('.back').onclick = () => this.main();
+    this.root.querySelectorAll('.card').forEach(c => c.onclick = () => this.deathmatch(c.dataset.l));
+    this.root.querySelectorAll('[data-d]').forEach(o => o.onclick = () => { this.settings.difficulty = o.dataset.d; this.save(); this.deathmatch(lv.id); });
+    this.root.querySelector('[data-a=lo]').onclick = () => this.loadoutScreen(() => this.deathmatch(lv.id));
+    this.root.querySelector('.deploy').onclick = () => { window.ivTrack?.('tdm_start', { map: lv.id }); this.onDeploy(lv.id, 'tdm'); };
+  }
+
   rankBadge() {
     const r = career.rank, p = career.rankProgress();
     return `<div class="rankbadge"><div class="ri">${RANK_SHORT[r]}</div><div class="rt"><b>${career.rankName(r)}</b>${career.callsign ? ` · ${esc(career.callsign)}` : ''}<div class="xpbar"><i style="width:${Math.round(p * 100)}%"></i></div><small>${career.xp.toLocaleString()} XP${r < RANKS.length - 1 ? ` · next rank at ${career.nextRankXP(r).toLocaleString()}` : ' · max rank'}</small></div></div>`;
@@ -84,7 +141,7 @@ export class UI {
   }
 
   async leaderboards(board = 'campaign') {
-    const boards = [['campaign', 'CAMPAIGN'], ...playable().map(m => [m.id, m.title.toUpperCase()]), ['laststand', 'LAST STAND']];
+    const boards = [['campaign', 'CAMPAIGN'], ...playable().map(m => [m.id, m.title.toUpperCase()]), ['laststand', 'LAST STAND'], ['tdm_village', 'TDM: VILLAGE'], ['tdm_oldtown', 'TDM: OLD TOWN']];
     const tabs = boards.map(([id, n]) => `<div class="opt lbt ${id === board ? 'sel' : ''}" data-b="${id}">${n}</div>`).join('');
     const mine = career.d.best[board];
     const render = body => this.screen(`<div class="hdr"><button class="back">‹ BACK</button><h1>LEADERBOARDS</h1></div>
@@ -151,6 +208,7 @@ export class UI {
         <button data-a="newCampaign" class="${act ? '' : 'primary'}">NEW CAMPAIGN<small>Ironman: lose every life and you start over</small></button>
         <button data-a="campaign">MISSION SELECT<small>Replay missions for practice — no lives at risk</small></button>
         <button data-a="bonus">BONUS: LAST STAND</button>
+        <button data-a="deathmatch">TEAM DEATHMATCH<small>You + 4 squadmates vs 6 bots</small></button>
         <button data-a="loadoutMain">LOADOUT</button>
         <button data-a="settingsMain">SETTINGS</button>
         <button data-a="controlsMain">CONTROLS</button>
@@ -414,7 +472,7 @@ export class UI {
     }
     if (mode === 'campaign') return win ? this.campaignWin(s) : this.campaignDeath(s, reason);
     this.screen(`<div class="results ${win ? 'win' : 'lose'}">
-      <h1>${win ? 'MISSION COMPLETE' : 'MISSION FAILED'}</h1>
+      <h1>${mode === 'tdm' ? (win ? 'VICTORY' : 'DEFEAT') : win ? 'MISSION COMPLETE' : 'MISSION FAILED'}</h1>
       <div class="op">${s.level.name} ${mode === 'practice' ? '<small>(practice)</small>' : ''}</div>
       ${reason ? `<p class="reason">${reason}</p>` : ''}
       ${win && s.ending ? `<div class="ending"><div class="en">${ENDINGS[s.ending]?.name}</div><p>${ENDINGS[s.ending]?.text}</p></div>` : ''}
@@ -422,12 +480,12 @@ export class UI {
       ${this.progressBlock(win, s, mode)}
       <div class="btns">
         <button class="primary" data-a="retry">${win ? 'REPLAY' : 'RETRY'}</button>
-        <button data-a="menu">MISSION SELECT</button>
+        <button data-a="menu">${mode === 'tdm' ? 'CHANGE MAP' : 'MISSION SELECT'}</button>
         <button data-a="main">MAIN MENU</button>
       </div></div>`, 'resultsS');
     this.afterProgress();
     this.root.querySelectorAll('[data-a]').forEach(b => b.onclick = () => {
-      if (b.dataset.a === 'retry') this.onDeploy(s.level.id, mode); else if (b.dataset.a === 'main') this.main(); else this.campaign();
+      if (b.dataset.a === 'retry') this.onDeploy(s.level.id, mode); else if (b.dataset.a === 'main') this.main(); else if (mode === 'tdm') this.deathmatch(s.level.id); else this.campaign();
     });
   }
 

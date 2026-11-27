@@ -202,7 +202,7 @@ export class HUD {
       if (!e.alive) continue;
       const show = e.hostage || e.friendly || (e.state === 'combat' && e.fireCd > 0 && e.seesPlayer);
       if (!show) continue;
-      c.fillStyle = e.hostage ? '#4cf' : '#ff3b30';
+      c.fillStyle = e.hostage ? '#4cf' : e.friendly ? '#5aa8ff' : '#ff3b30';
       c.beginPath(); c.arc((e.pos.x - P.pos.x) * k, (e.pos.z - P.pos.z) * k, 4, 0, 7); c.fill();
     }
     const wp = G.waypoint();

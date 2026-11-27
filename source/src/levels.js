@@ -169,6 +169,14 @@ function helicopter(G) {
   return g;
 }
 
+// Team Deathmatch objective: win when Vanguard reaches the limit first
+function tdmCheck(G) {
+  const T = G.tdm; if (!T || !T.done) return false;
+  if (T.winner === 'a') return true;
+  G.failMission(T.winner === 'b' ? `Black Tide won the match ${T.score.b}–${T.score.a}.` : `The match ended in a ${T.score.a}–${T.score.b} draw.`);
+  return false;
+}
+
 function greenSmoke(G, pos, color = [0.35, 0.95, 0.4]) {
   return dt => {
     G._gs = (G._gs || 0) + dt * 10;
@@ -1468,7 +1476,10 @@ export const LEVELS = [
       };
       const showChoice = on => {
         let el = document.getElementById('choice');
-        if (!el) { el = document.createElement('div'); el.id = 'choice'; el.innerHTML = '<div class="q">KESSLER IS UNARMED</div><div class="opts"><span><b>1</b> ARREST HIM</span><span><b>2</b> PULL THE TRIGGER</span></div>'; G.hud.el.appendChild(el); }
+        if (!el) {
+          el = document.createElement('div'); el.id = 'choice'; el.innerHTML = '<div class="q">KESSLER IS UNARMED</div><div class="opts"><span data-k="Digit1"><b>1</b> ARREST HIM</span><span data-k="Digit2"><b>2</b> PULL THE TRIGGER</span></div><div class="q" style="margin-top:8px;opacity:.7">Controller: X to arrest · Y to shoot</div>'; G.hud.el.appendChild(el);
+          el.querySelectorAll('span').forEach(sp => sp.onpointerdown = ev => { ev.preventDefault(); G.input.press(sp.dataset.k); setTimeout(() => G.input.release(sp.dataset.k), 80); });
+        }
         el.style.display = on ? 'block' : 'none';
       };
       G.ending = null;
@@ -1534,8 +1545,8 @@ export const LEVELS = [
               const near = G.player.pos.distanceTo(kessler.pos) < 6;
               showChoice(near && !choice);
               if (near && !choice) {
-                if (G.input.pressed.has('Digit1') || G.input.pressed.has('Numpad1')) choice = 'arrest';
-                if (G.input.pressed.has('Digit2') || G.input.pressed.has('Numpad2')) choice = 'execute';
+                if (G.input.pressed.has('Digit1') || G.input.pressed.has('Numpad1') || (G.input.padActive && G.input.virtPressed.has('reload'))) choice = 'arrest';
+                if (G.input.pressed.has('Digit2') || G.input.pressed.has('Numpad2') || (G.input.padActive && G.input.virtPressed.has('swap'))) choice = 'execute';
                 if (choice) {
                   showChoice(false); G.ending = choice;
                   if (choice === 'execute') { audio.shot('pistol', G.player.pos, true); kessler.friendly = false; kessler.takeDamage(9999, kessler.pos.clone().sub(G.player.pos).normalize(), { point: kessler.headPos(V()), force: 4 }); }
@@ -1546,6 +1557,51 @@ export const LEVELS = [
             },
           },
         ],
+      };
+    },
+  },
+  {
+    id: 'tdm_village', tdmMap: true, noSave: true, enemyWeapon: 'ak47', name: 'TEAM DEATHMATCH: VILLAGE', location: 'Al-Qadir Province', time: 'Midday', reverb: 'outdoor',
+    briefing: 'Vanguard against Black Tide in the desert village. You and four squadmates against six contractors. Everyone respawns. First team to 40 kills wins, or the team ahead after 10 minutes.',
+    objectivesPreview: ['First team to 40 kills', '10-minute time limit', 'Unlimited respawns'],
+    intro: ['TEAM DEATHMATCH', 'Village · Al-Qadir', 'Vanguard vs Black Tide'],
+    hint: 'Stick with your squad. Respawns put you back at your team\'s side of the map.',
+    ambience: [['wind', 0.3]],
+    async build(G, prog) {
+      setupEnvironment(G, { hdri: 'qwantani_noon_puresky', sunDir: V(0.6, 0.78, 0.5), sunIntensity: 4.0, sunColor: 0xfff2dc, envIntensity: 1.0, fogColor: 0xd9cdb5, fogDensity: 0.005, exposure: 0.85, skyTop: 0x2d5c9c, skyHorizon: 0xe2d6c0, skyGround: 0xb39a78, clouds: 0.22, hemi: 0.25, groundColor: 0x9a7f5c, grade: { tint: 0xfff3e2, saturation: 1.0, contrast: 1.14 } });
+      G.envExposure = 0.85; G.level.tint = 'desert';
+      const M = await mats();
+      prog(0.4, 'Building village');
+      await desertVillage(G, M);
+      G.pickups.add('ammo', V(0, 0, 0)); G.pickups.add('ammo', V(-24, 0, -6)); G.pickups.add('ammo', V(24, 0, 4)); G.pickups.add('grenade', V(0, 0, -20));
+      return {
+        spawn: V(0, 0, 60), spawnYaw: 0, exposure: 0.85,
+        tdm: { limit: 40, time: 600, allies: 4, enemies: 6, yawA: 0, yawB: Math.PI, spawnA: [[-10, 60], [10, 60], [-28, 56], [28, 56], [0, 50]], spawnB: [[-10, -62], [10, -62], [-30, -60], [30, -58], [0, -66]] },
+        objectives: [{ type: 'custom', text: 'Team Deathmatch: first to 40 kills', waypoint: false, check: tdmCheck }],
+      };
+    },
+  },
+  {
+    id: 'tdm_oldtown', tdmMap: true, noSave: true, enemyWeapon: 'm4a1', name: 'TEAM DEATHMATCH: OLD TOWN', location: 'Zagoria', time: 'Dusk', reverb: 'urban',
+    briefing: 'Close-quarters street fighting in Old Town at dusk. You and four squadmates against six Black Tide contractors. Everyone respawns. First team to 40 kills wins, or the team ahead after 10 minutes.',
+    objectivesPreview: ['First team to 40 kills', '10-minute time limit', 'Unlimited respawns'],
+    intro: ['TEAM DEATHMATCH', 'Old Town · Zagoria', 'Vanguard vs Black Tide'],
+    hint: 'Old Town is tight. Use the shop fronts and alleys, and watch the windows.',
+    ambience: [['wind', 0.2]],
+    async build(G, prog) {
+      setupEnvironment(G, { hdri: 'belfast_sunset_puresky', sunDir: V(-0.9, 0.12, 0.4), sunIntensity: 2.4, sunColor: 0xff9a60, envIntensity: 0.7, fogColor: 0x6a5a58, fogDensity: 0.009, exposure: 1.05, skyTop: 0x34446a, skyHorizon: 0xe8946a, skyGround: 0x3a3230, clouds: 0.5, cloudColor: 0xffb090, skyBright: 0.9, hemi: 0.2, skyColor: 0xffb894, groundColor: 0x3a3230, shadowExtent: 50, grade: { tint: 0xffeee2, saturation: 0.95, contrast: 1.12 } });
+      G.envExposure = 1.05; G.level.tint = 'urban';
+      const M = await mats(); const W = G.world;
+      W.bounds = { minX: -40, maxX: 40, minZ: -84, maxZ: 40 };
+      const ter = await terrain(G, { tex: 'asphalt_02', texSize: 5, flat: 70, hills: 15, mat: 'concrete', seed: 5 });
+      addWetness(ter.material, { amount: 0.4, scale: 0.08, dampness: 0.3 });
+      prog(0.4, 'Building Old Town');
+      await oldTown(G, M, prog);
+      G.pickups.add('ammo', V(0, 0, -20)); G.pickups.add('ammo', V(-6, 0, 10)); G.pickups.add('grenade', V(6, 0, -40));
+      return {
+        spawn: V(0, 0, 34), spawnYaw: 0, exposure: 1.05,
+        tdm: { limit: 40, time: 600, allies: 4, enemies: 6, yawA: 0, yawB: Math.PI, spawnA: [[-5, 34], [5, 34], [-12, 30], [12, 30], [0, 26]], spawnB: [[-5, -60], [5, -60], [-12, -56], [12, -56], [0, -52]] },
+        objectives: [{ type: 'custom', text: 'Team Deathmatch: first to 40 kills', waypoint: false, check: tdmCheck }],
       };
     },
   },
