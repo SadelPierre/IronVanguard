@@ -23,14 +23,17 @@ export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Headers', 'content-type');
   if (req.method === 'OPTIONS') return res.status(204).end();
-  if (!process.env.BLOB_READ_WRITE_TOKEN) return res.status(503).json({ ok: false, error: 'Leaderboard storage is not set up yet.' });
+  // the token's name depends on the prefix chosen when the store was connected (default BLOB_)
+  const tokenKey = Object.keys(process.env).find(k => k === 'BLOB_READ_WRITE_TOKEN') || Object.keys(process.env).find(k => /READ_WRITE_TOKEN$/.test(k));
+  if (!tokenKey) return res.status(503).json({ ok: false, error: 'Leaderboard storage is not set up yet.', seen: Object.keys(process.env).filter(k => /BLOB|STORE|READ_WRITE/i.test(k)) });
+  const token = process.env[tokenKey];
   try {
     if (req.method === 'GET') {
       const board = String(req.query.board || '');
       if (!BOARDS.has(board)) return res.status(400).json({ ok: false, error: 'Unknown board' });
       const out = [], seen = new Set(); let cursor;
       do {
-        const r = await list({ prefix: `lb/v1/${board}/`, limit: 1000, cursor });
+        const r = await list({ prefix: `lb/v1/${board}/`, limit: 1000, cursor, token });
         for (const b of r.blobs) { const s = parse(b.pathname); if (s) out.push(s); }
         cursor = r.hasMore ? r.cursor : null;
       } while (cursor && out.length < 3000);
@@ -51,12 +54,12 @@ export default async function handler(req, res) {
       if (ip && recent.get(ip) > now - 4000) return res.status(429).json({ ok: false, error: 'Slow down' });
       recent.set(ip, now); if (recent.size > 5000) recent.clear();
       const path = `lb/v1/${board}/${String(9999999 - score).padStart(7, '0')}_${diff}_${time}_${kills}_${enc(name)}_${now}`;
-      try { await put(path, '1', { access: 'public', addRandomSuffix: false, contentType: 'text/plain' }); }
-      catch (e) { await put(path, '1', { access: 'private', addRandomSuffix: false, contentType: 'text/plain' }); }
+      try { await put(path, '1', { access: 'public', addRandomSuffix: false, contentType: 'text/plain', token }); }
+      catch (e) { await put(path, '1', { access: 'private', addRandomSuffix: false, contentType: 'text/plain', token }); }
       return res.status(200).json({ ok: true });
     }
     return res.status(405).json({ ok: false, error: 'Method not allowed' });
   } catch (e) {
-    return res.status(500).json({ ok: false, error: 'Leaderboard error' });
+    return res.status(500).json({ ok: false, error: 'Leaderboard error', detail: String(e && e.message || e).slice(0, 200) });
   }
 }
