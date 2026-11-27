@@ -24,9 +24,11 @@ export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Headers', 'content-type');
   if (req.method === 'OPTIONS') return res.status(204).end();
   // the token's name depends on the prefix chosen when the store was connected (default BLOB_)
+  // Newer stores authenticate with BLOB_STORE_ID + the function's OIDC token (handled by the SDK);
+  // older ones with a read/write token whose name depends on the prefix chosen when connecting.
   const tokenKey = Object.keys(process.env).find(k => k === 'BLOB_READ_WRITE_TOKEN') || Object.keys(process.env).find(k => /READ_WRITE_TOKEN$/.test(k));
-  if (!tokenKey) return res.status(503).json({ ok: false, error: 'Leaderboard storage is not set up yet.', seen: Object.keys(process.env).filter(k => /BLOB|STORE|READ_WRITE/i.test(k)) });
-  const token = process.env[tokenKey];
+  if (!tokenKey && !process.env.BLOB_STORE_ID) return res.status(503).json({ ok: false, error: 'Leaderboard storage is not set up yet.' });
+  const token = tokenKey ? process.env[tokenKey] : undefined;
   try {
     if (req.method === 'GET') {
       const board = String(req.query.board || '');
