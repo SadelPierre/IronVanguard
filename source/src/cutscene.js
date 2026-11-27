@@ -38,6 +38,7 @@ export class Cutscene {
     if (s.roll) cam.rotateZ(s.roll * (1 - k * 0.5));
     const fov = s.fov ? s.fov + ((s.fovTo ?? s.fov) - s.fov) * k : this.baseFov;
     if (Math.abs(cam.fov - fov) > 0.01) { cam.fov = fov; cam.updateProjectionMatrix(); }
+    G.engine.setDOF(this.def.dof !== false, cam.position.distanceTo(this._look), 1);
     while (this.lines[this.li] && this.lines[this.li].at <= this.t) { const l = this.lines[this.li++]; G.radio(l.who, l.text); }
     this.def.update?.(G, this.t, dt);
     const skip = this.t > 0.8 && input && (input.pressed.has('Space') || input.pressed.has('Enter') || input.pressed.has('NumpadEnter'));
@@ -48,7 +49,7 @@ export class Cutscene {
   end() {
     if (this.done) return; this.done = true;
     const G = this.G, cam = G.engine.camera;
-    G.hud.cinematic(false);
+    G.hud.cinematic(false); G.engine.setDOF(false);
     if (G.player.vm && !G.gunship) G.player.vm.visible = true;
     G.player.godMode = this.wasGod;
     cam.fov = this.baseFov; cam.updateProjectionMatrix();

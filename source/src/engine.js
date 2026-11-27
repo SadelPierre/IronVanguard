@@ -7,12 +7,13 @@ import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { SMAAPass } from 'three/examples/jsm/postprocessing/SMAAPass.js';
 import { GTAOPass } from 'three/examples/jsm/postprocessing/GTAOPass.js';
+import { BokehPass } from 'three/examples/jsm/postprocessing/BokehPass.js';
 
 export const QUALITY = {
-  low:    { shadow: 1024, pixelRatio: 0.75, bloom: false, ao: false, smaa: false, shadowsOn: true, aniso: 2 },
-  medium: { shadow: 2048, pixelRatio: 1.0,  bloom: true,  ao: false, smaa: true,  shadowsOn: true, aniso: 4 },
-  high:   { shadow: 4096, pixelRatio: 1.0,  bloom: true,  ao: true,  smaa: true,  shadowsOn: true, aniso: 8 },
-  ultra:  { shadow: 4096, pixelRatio: 1.5,  bloom: true,  ao: true,  smaa: true,  shadowsOn: true, aniso: 16 },
+  low:    { shadow: 1024, pixelRatio: 0.75, bloom: false, ao: false, smaa: false, shadowsOn: true, aniso: 2, sharpen: 0 },
+  medium: { shadow: 2048, pixelRatio: 1.0,  bloom: true,  ao: false, smaa: true,  shadowsOn: true, aniso: 4, sharpen: 0.25 },
+  high:   { shadow: 4096, pixelRatio: 1.0,  bloom: true,  ao: true,  smaa: true,  shadowsOn: true, aniso: 8, sharpen: 0.35, dof: true, flare: true },
+  ultra:  { shadow: 4096, pixelRatio: 1.5,  bloom: true,  ao: true,  smaa: true,  shadowsOn: true, aniso: 16, sharpen: 0.3, dof: true, flare: true, softShadows: true, aoSamples: 16 },
 };
 
 // Final grade: vignette, film grain, damage tint, flashbang, chromatic aberration, night vision
@@ -28,6 +29,8 @@ const GradeShader = {
     nvg: { value: 0 },
     thermal: { value: 0 },
     scope: { value: 0 },
+    sharpen: { value: 0 },
+    res: { value: new THREE.Vector2(1920, 1080) },
     contrast: { value: 1.06 },
     saturation: { value: 1.0 },
     tint: { value: new THREE.Color(1, 1, 1) },
@@ -35,7 +38,7 @@ const GradeShader = {
   },
   vertexShader: `varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
   fragmentShader: `
-    uniform sampler2D tDiffuse; uniform float time, damage, flash, vignette, grain, aberr, nvg, thermal, scope, contrast, saturation, aspect;
+    uniform sampler2D tDiffuse; uniform float time, damage, flash, vignette, grain, aberr, nvg, thermal, scope, contrast, saturation, aspect, sharpen; uniform vec2 res;
     uniform vec3 tint; varying vec2 vUv;
     float rand(vec2 c){ return fract(sin(dot(c, vec2(12.9898,78.233))) * 43758.5453); }
     void main(){
@@ -45,6 +48,11 @@ const GradeShader = {
       col.r=texture2D(tDiffuse, uv + d*ab).r;
       col.g=texture2D(tDiffuse, uv).g;
       col.b=texture2D(tDiffuse, uv - d*ab).b;
+      if(sharpen>0.0){ // light unsharp mask to restore detail lost to anti-aliasing
+        vec2 px=1.0/res;
+        vec3 nb=texture2D(tDiffuse, uv+vec2(px.x,0.0)).rgb+texture2D(tDiffuse, uv-vec2(px.x,0.0)).rgb+texture2D(tDiffuse, uv+vec2(0.0,px.y)).rgb+texture2D(tDiffuse, uv-vec2(0.0,px.y)).rgb;
+        col=max(col+(col*4.0-nb)*sharpen*0.25, 0.0);
+      }
       // grade
       col = (col-0.5)*contrast+0.5;
       float l=dot(col, vec3(0.299,0.587,0.114));
@@ -116,10 +124,12 @@ export class Engine {
       const ao = this.aoPass = new GTAOPass(this.scene, this.camera, 1, 1);
       ao.output = GTAOPass.OUTPUT.Default;
       ao.blendIntensity = 0.85;
-      ao.updateGtaoMaterial({ radius: 0.6, distanceExponent: 1.4, thickness: 1.5, scale: 1.0, samples: 12 });
+      ao.updateGtaoMaterial({ radius: 0.6, distanceExponent: 1.4, thickness: 1.5, scale: 1.0, samples: q.aoSamples || 12 });
       ao.updatePdMaterial({ lumaPhi: 10, depthPhi: 2, normalPhi: 3, radius: 6, rings: 2, samples: 12 });
       comp.addPass(ao);
     } else this.aoPass = null;
+    // depth of field for cinematics (off during gameplay)
+    if (q.dof) { const dof = this.dof = new BokehPass(this.scene, this.camera, { focus: 10, aperture: 0.00012, maxblur: 0.009 }); dof.enabled = false; comp.addPass(dof); } else this.dof = null;
     const vm = this.vmPass = new RenderPass(this.vmScene, this.vmCamera);
     vm.clear = false; vm.clearDepth = true;
     comp.addPass(vm);
@@ -132,6 +142,9 @@ export class Engine {
     this.grade = new ShaderPass(GradeShader);
     comp.addPass(this.grade);
     r.shadowMap.enabled = q.shadowsOn;
+    const st = q.softShadows ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
+    if (r.shadowMap.type !== st) { r.shadowMap.type = st; r.shadowMap.needsUpdate = true; }
+    this.grade.uniforms.sharpen.value = q.sharpen || 0;
     this.resize();
   }
 
@@ -153,8 +166,15 @@ export class Engine {
     if (this.composer) {
       this.composer.setPixelRatio(pr);
       this.composer.setSize(w, h);
-      if (this.grade) this.grade.uniforms.aspect.value = w / h;
+      if (this.grade) { this.grade.uniforms.aspect.value = w / h; this.grade.uniforms.res.value.set(w * pr, h * pr); }
     }
+  }
+
+  // cinematic depth of field: focus distance in metres, strength 0..1
+  setDOF(on, focus = 10, strength = 1) {
+    if (!this.dof) return;
+    this.dof.enabled = on;
+    if (on) { const u = this.dof.uniforms; u.focus.value = focus; u.aperture.value = 0.00012 * strength; u.maxblur.value = 0.009 * strength; }
   }
 
   render(dt) {

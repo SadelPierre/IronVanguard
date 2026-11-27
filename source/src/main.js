@@ -6,6 +6,7 @@ import { Input } from './input.js';
 import { HUD } from './hud.js';
 import { UI } from './ui.js';
 import { Game } from './game.js';
+import { career } from './progression.js';
 import { audio } from './audio.js';
 import { LEVELS } from './levels.js';
 import { campaign } from './campaign.js';
@@ -40,7 +41,7 @@ async function deploy(levelId, save = null, mode = 'practice') {
   ui.loading(def, mode);
   game.state = 'loading';
   try {
-    await game.loadLevel(levelId, structuredClone(save?.loadout || ui.loadout), save?.difficulty || ui.settings.difficulty, (p, t) => ui.progressBar(p, t), save, mode);
+    await game.loadLevel(levelId, structuredClone(save?.loadout || career.sanitize(ui.loadout)), save?.difficulty || ui.settings.difficulty, (p, t) => ui.progressBar(p, t), save, mode);
   } catch (e) {
     console.error(e);
     ui.progressBar(0, 'Failed to load: ' + e.message);

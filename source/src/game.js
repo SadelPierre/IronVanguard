@@ -96,6 +96,7 @@ export class Game {
 
   disposeLevel() {
     if (this.cutscene) { this.cutscene.done = true; this.hud.cinematic(false); this.cutscene = null; }
+    this.engine.setDOF?.(false); this.camRoll = 0;
     this.controller?.dispose?.(); this.controller = null;
     this.weather?.dispose(); this.weather = null; this.breaches = []; this.gunship?.dispose(); this.gunship = null; this.timeScale = 1; clearTimeout(this._smT);
     if (this.enemies) this.enemies.clear();

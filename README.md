@@ -25,6 +25,15 @@ You don't need to install anything or run a web server. Keep the `assets` folder
 - **MISSION SELECT** replays any mission for practice, with no lives at risk. **Last Stand** is a bonus mode.
 - The story is told through briefings and fully voiced radio chatter with subtitles. Every line was recorded with the free Kokoro neural voice model (Apache-2.0) and plays through a radio filter. Enemies shout recorded callouts. You can switch voices off in Settings.
 
+## Career, unlocks and leaderboards
+- **XP and 20 ranks** (Private → General). Earn XP for kills (+100), headshots (+50), finishing missions (doubled on Veteran), flawless runs, 60%+ accuracy and **challenges** (CAREER screen).
+- **Unlocks:** you start with the M4A1, the pistol, iron sights and two perks. Ranking up unlocks the MP5, M870, AK-47, sniper rifle, magnum, M249, every optic and attachment, Semtex, smoke and the remaining perks. Missions that hand you a specific weapon still give it to you.
+- **Mission score** on every completed mission, with a personal best per mission.
+- **Online leaderboards** (hosted site): one board per mission plus a campaign board. Set a **callsign** in CAREER; your scores post automatically. They run on a small Vercel Function (`api/leaderboard.js`) that stores scores in Vercel Blob.
+
+## Graphics options
+High and Ultra add cinematic depth of field in cutscenes, a sun lens flare on daytime maps and a light sharpening filter. Ultra also uses soft shadows, more ambient-occlusion samples and a 1.5× render scale.
+
 ## Realism
 - Soldiers (enemies and squadmates) move with **motion-captured rifle animations** from Mixamo: rifle idle, walk, run, crouch, aim and fire, reload, and hit reactions. Legs and upper body blend separately, so a soldier can walk while aiming or reloading.
 - **Real recorded gunshots** from The Free Firearm Sound Library (CC0): AR-15 for the M4, AK-47, Swedish K for the MP5, Benelli Nova for the shotgun, Tikka .30-06 for the sniper rifle, Walther PPQ for the pistol, 1911 for the magnum and SKS for the LMG.

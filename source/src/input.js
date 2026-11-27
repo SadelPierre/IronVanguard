@@ -48,7 +48,7 @@ export class Input {
     this.binds = defaultBinds();
     addEventListener('keydown', e => {
       if (this.capture) { e.preventDefault(); this.capture(e.code); return; }
-      if (!this.enabled) return;
+      if (!this.enabled || /^(INPUT|TEXTAREA)$/.test(e.target?.tagName || '')) return;
       if (e.code !== 'Escape' && e.code !== 'F5' && e.code !== 'F11' && e.code !== 'F12') e.preventDefault();
       this.press(e.code);
     });

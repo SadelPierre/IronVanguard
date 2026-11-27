@@ -6,7 +6,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
 :root { --acc:#e8c15a; --acc2:#9fd36b; --txt:#e9ecef; --dim:#9aa3ab; --bgp:rgba(12,16,20,.78); }
-* { box-sizing:border-box; }
+* { box-sizing:border-box; } input { user-select:text; }
 html,body { margin:0; height:100%; background:#000; overflow:hidden; font-family: "Segoe UI", "Bahnschrift", "Roboto Condensed", Arial, sans-serif; color:var(--txt); user-select:none; }
 body.nocursor { cursor:none; }
 #game { position:fixed; inset:0; display:block; }
@@ -24,7 +24,7 @@ body.nocursor { cursor:none; }
 .title { margin-top:9vh; }
 .title .t1 { font-size:76px; font-weight:800; letter-spacing:10px; line-height:1; background:linear-gradient(180deg,#fff, #bfc6cc); -webkit-background-clip:text; background-clip:text; color:transparent; text-shadow: 0 0 40px rgba(232,193,90,.12); }
 .title .t2 { font-size:18px; letter-spacing:14px; color:var(--acc); margin-top:10px; }
-.mainnav { display:flex; flex-direction:column; gap:10px; margin-top:7vh; width:340px; }
+.mainnav { display:grid; grid-template-columns:340px 340px; gap:10px; margin-top:6vh; align-items:start; } .mainnav button.primary { grid-column:1 / span 2; width:340px; }
 button { font:inherit; color:var(--txt); background:rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.12); padding:13px 20px; font-size:16px; letter-spacing:3px; text-align:left; cursor:pointer; transition: all .12s; clip-path: polygon(0 0, 100% 0, 100% 70%, 96% 100%, 0 100%); }
 button:hover { background:rgba(232,193,90,.18); border-color:var(--acc); padding-left:28px; }
 button.primary { background:linear-gradient(90deg, rgba(232,193,90,.9), rgba(232,193,90,.65)); color:#111; font-weight:700; border-color:var(--acc); }
@@ -190,6 +190,32 @@ table.hof { border-collapse:collapse; background:var(--bgp); min-width:860px; } 
 #intro { position:absolute; left:60px; bottom:110px; font-family: Consolas, "Courier New", monospace; font-size:15px; color:#d9f0c8; transition: opacity 1.5s; letter-spacing:1px; line-height:1.7; }
 #intro .big { font-size:22px; font-weight:700; letter-spacing:4px; color:#fff; }
 #fps { position:absolute; right:12px; top:8px; font-size:12px; color:#9f9; }
+
+/* ---- career / XP / leaderboards ---- */
+.main .rankbadge { position:absolute; top:38px; right:48px; margin:0; width:420px; cursor:pointer; }
+.careergrid { display:grid; grid-template-columns:minmax(0,1.15fr) minmax(0,1fr); gap:28px; } .careergrid table { width:100%; } .careergrid td { white-space:normal; }
+.careergrid .brief { max-width:none; }
+.careergrid table.hof { min-width:0; width:100%; table-layout:fixed; } .careergrid .hof td, .careergrid .hof th { padding:7px 10px; } .careergrid .hof td:nth-child(1), .careergrid .hof th:nth-child(1) { width:56px; } .careergrid .hof td:nth-child(3), .careergrid .hof th:nth-child(3) { width:84px; } .careergrid .hof td:nth-child(2), .careergrid .hof th:nth-child(2) { width:34%; }
+.career .screen, .lb .screen { overflow-y:auto; max-height:100vh; padding-bottom:40px; }
+.rankbadge { display:flex; align-items:center; gap:14px; margin:6px auto 14px; max-width:520px; padding:10px 16px; background:rgba(0,0,0,.35); border:1px solid rgba(255,255,255,.12); }
+.rankbadge .ri { min-width:52px; height:52px; display:flex; align-items:center; justify-content:center; font-weight:800; letter-spacing:1px; color:#111; background:linear-gradient(135deg,#e6c46a,#a8842e); clip-path:polygon(50% 0,100% 25%,100% 75%,50% 100%,0 75%,0 25%); }
+.rankbadge .rt { flex:1; text-align:left; font-size:14px; } .rankbadge small { opacity:.65; font-size:11px; letter-spacing:.5px; }
+.xpbar { height:6px; background:rgba(255,255,255,.12); margin:6px 0 4px; overflow:hidden; } .xpbar i { display:block; height:100%; background:linear-gradient(90deg,#c9a24a,#f0d78a); transition:width 1.4s cubic-bezier(.2,.8,.2,1); }
+.callsign { display:flex; gap:10px; align-items:center; justify-content:center; margin:0 0 14px; font-size:12px; letter-spacing:.15em; opacity:.9; }
+.callsign input, .lbpost input { background:rgba(0,0,0,.5); border:1px solid rgba(255,255,255,.3); color:#fff; padding:7px 10px; font:inherit; letter-spacing:1px; width:170px; }
+table.ranks tr.got td { color:#e8dcc0; } table.ranks tr:not(.got) td { opacity:.5; } table.ranks tr.cur td { background:rgba(217,180,90,.15); } table.ranks td:last-child { font-size:12px; text-align:left; }
+.chals { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:10px; } .chal { padding:8px 10px; background:rgba(0,0,0,.3); border:1px solid rgba(255,255,255,.1); text-align:left; font-size:12px; }
+.chal b { display:block; font-size:13px; } .chal span { opacity:.7; } .chal small { opacity:.6; } .chal.done { border-color:rgba(217,180,90,.6); } .chal.done b { color:#d9b45a; }
+.lbtabs { display:flex; flex-wrap:wrap; gap:6px; justify-content:center; margin:0 auto 14px; max-width:1100px; } .lbtabs .opt { padding:6px 10px; font-size:11px; }
+.lbbody { max-width:900px; margin:0 auto; } .lbmsg { text-align:center; opacity:.75; padding:30px; } table.hof tr.me td { background:rgba(217,180,90,.18); }
+.xpblock { margin:12px auto 6px; max-width:560px; text-align:left; font-size:13px; }
+.xpblock .score { text-align:center; font-size:14px; letter-spacing:.25em; margin-bottom:8px; } .xpblock .score b { font-size:26px; letter-spacing:1px; color:#f0d78a; margin-left:8px; } .xpblock .pb { font-size:11px; color:#7fe08a; letter-spacing:.15em; }
+.xplines div { display:flex; justify-content:space-between; opacity:.85; padding:1px 0; } .xplines b { color:#f0d78a; }
+.xprank { margin-top:8px; } .xprank span { font-size:12px; letter-spacing:.1em; } .xprank small { opacity:.65; }
+.rankup { margin-top:8px; text-align:center; font-weight:800; letter-spacing:.3em; color:#f0d78a; animation:pulse 1.2s ease-in-out 3; } .unlocks { text-align:center; margin-top:4px; color:#9fe0a8; font-size:12px; letter-spacing:.08em; }
+.lbpost { margin-top:10px; text-align:center; font-size:12px; opacity:.9; } .lbpost a { color:#f0d78a; }
+@keyframes pulse { 50% { opacity:.4; } }
+.opt.locked { opacity:.42; cursor:not-allowed; position:relative; } .opt .lock { display:block; font-style:normal; font-size:10px; letter-spacing:.08em; color:#d9b45a; margin-top:2px; }
 </style>
 <script>
 // ---- Analytics (only on the hosted site, never when opened from disk) ----

@@ -1439,7 +1439,7 @@ export const LEVELS = [
       vehicleWreck(G, M, -22, 12, 0.5, true, { burnt: false }); vehicleWreck(G, M, 24, 14, -1.2, false, { burnt: false });
       await Promise.all([W.prop('old_military_crate', -6, 14, { mat: 'wood' }), W.prop('wooden_military_crate', 8, 16, { mat: 'wood' }), W.prop('propane_tank', -26, -16, { explosive: true }), W.prop('propane_tank', 28, -14, { explosive: true }), W.prop('Barrel_01', 14, -18), W.prop('barrel_03', -14, -20)]);
       // approach outside the gate
-      for (const [x, z, w, h, d] of [[-14, 46, 7, 2, 4], [12, 40, 6, 2.4, 5], [-4, 34, 5, 1.4, 3], [20, 56, 7, 2.6, 5], [-24, 58, 8, 3, 6]]) W.box(x, 0, z, w, h, d, M.rock, { mat: 'concrete', texSize: 3 });
+      for (const [x, z, sc] of [[-14, 46, 2.4], [12, 40, 2.6], [-4, 35, 1.6], [20, 56, 2.8], [-24, 58, 3]]) await W.prop('boulder_01', x, z, { scale: sc, rotY: x, mat: 'concrete' });
       await scatter(G, 'namaqualand_boulder_02', spots(G, 14, { keep: [[0, 55, 6], [0, 30, 5]], clear: 2, x0: -58, x1: 58, z0: 30, z1: 68, scale: [0.8, 1.4] }), { collide: true, colRadius: 'auto', colHeight: 'auto', sink: 0.05 });
       G._supplies = [V(-6, 0, 14), V(8, 0, 16)];
       G.pickups.add('ammo', V(-4, 0, 36)); G.pickups.add('grenade', V(4, 0, 38));

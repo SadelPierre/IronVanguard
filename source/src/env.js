@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { loadHDR, pbr, loadTexture, addGrime } from './assets.js';
 import { worldBoxGeometry } from './world.js';
 import { setAtmosphere } from './scenery.js';
+import { Lensflare, LensflareElement } from 'three/examples/jsm/objects/Lensflare.js';
 
 const V = (x = 0, y = 0, z = 0) => new THREE.Vector3(x, y, z);
 
@@ -59,6 +60,18 @@ export function setupEnvironment(G, o) {
   sun.shadow.mapSize.set(sz, sz);
   const ext = o.shadowExtent ?? 55;
   Object.assign(sun.shadow.camera, { left: -ext, right: ext, top: ext, bottom: -ext, near: 1, far: 250 });
+  // sun lens flare (daytime, high/ultra)
+  G.flare = null;
+  if (!o.night && o.flare !== false && (q === 'high' || q === 'ultra')) {
+    const lf = new Lensflare(), sc = new THREE.Color(o.sunColor ?? 0xfff1dc);
+    lf.addElement(new LensflareElement(flareTex('core'), 380, 0, sc));
+    lf.addElement(new LensflareElement(flareTex('glow'), 640, 0, sc.clone().multiplyScalar(0.28)));
+    lf.addElement(new LensflareElement(flareTex('ring'), 70, 0.45, new THREE.Color(0x88aaff).multiplyScalar(0.5)));
+    lf.addElement(new LensflareElement(flareTex('disc'), 110, 0.7, new THREE.Color(0xffb070).multiplyScalar(0.35)));
+    lf.addElement(new LensflareElement(flareTex('disc'), 55, 0.95, new THREE.Color(0x90ff90).multiplyScalar(0.3)));
+    lf.addElement(new LensflareElement(flareTex('ring'), 160, 1.2, new THREE.Color(0xffc080).multiplyScalar(0.3)));
+    scene.add(lf); G.flare = lf;
+  }
   sun.shadow.bias = -0.0003; sun.shadow.normalBias = 0.03; sun.shadow.radius = 3; sun.shadow.blurSamples = 12;
   scene.add(sun); scene.add(sun.target);
   G.sun = sun; G.sunDir = sunDir; G.shadowExt = ext;
@@ -151,7 +164,23 @@ export function updateSun(G) {
     const cam = G.engine.camera; const d = G.sunDir.clone().applyQuaternion(cam.quaternion.clone().invert());
     G.vmSun.position.copy(d).multiplyScalar(5); G.vmSun.target.position.set(0, 0, 0);
   }
+  if (G.flare) G.flare.position.copy(G.engine.camera.position).addScaledVector(G.sunDir, 900);
   if (G.sky) { G.sky.position.copy(G.engine.camera.position); G.sky.material.uniforms.time.value = G.time; }
+}
+
+// procedural lens flare sprites
+const _flareTex = {};
+function flareTex(kind) {
+  if (_flareTex[kind]) return _flareTex[kind];
+  const n = 128, c = document.createElement('canvas'); c.width = c.height = n; const x = c.getContext('2d');
+  const g = x.createRadialGradient(n / 2, n / 2, 0, n / 2, n / 2, n / 2);
+  if (kind === 'core') { g.addColorStop(0, 'rgba(255,255,255,1)'); g.addColorStop(0.08, 'rgba(255,250,235,0.9)'); g.addColorStop(0.3, 'rgba(255,230,190,0.18)'); g.addColorStop(1, 'rgba(255,220,180,0)'); }
+  else if (kind === 'glow') { g.addColorStop(0, 'rgba(255,255,255,0.35)'); g.addColorStop(0.4, 'rgba(255,255,255,0.08)'); g.addColorStop(1, 'rgba(255,255,255,0)'); }
+  else if (kind === 'ring') { g.addColorStop(0, 'rgba(255,255,255,0)'); g.addColorStop(0.72, 'rgba(255,255,255,0)'); g.addColorStop(0.82, 'rgba(255,255,255,0.55)'); g.addColorStop(0.92, 'rgba(255,255,255,0)'); g.addColorStop(1, 'rgba(255,255,255,0)'); }
+  else { g.addColorStop(0, 'rgba(255,255,255,0.5)'); g.addColorStop(0.7, 'rgba(255,255,255,0.35)'); g.addColorStop(1, 'rgba(255,255,255,0)'); }
+  x.fillStyle = g; x.fillRect(0, 0, n, n);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
+  return (_flareTex[kind] = t);
 }
 
 // big terrain: flat inside play area, rolling hills outside

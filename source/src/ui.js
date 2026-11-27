@@ -1,4 +1,6 @@
 // Menus: main, campaign, loadout, settings, pause, loading, results
+import { career, RANKS, RANK_SHORT, CHALLENGES, UNLOCKS, missionScore, DIFF_MULT } from './progression.js';
+import { fetchBoard, submitScore, online } from './leaderboard.js';
 import { WEAPONS, ATTACHMENTS, LETHALS, TACTICALS, PERKS, allowedAttachments, computeStats } from './weapons.js';
 import { DIFFICULTY } from './enemies.js';
 import { LEVELS } from './levels.js';
@@ -19,6 +21,15 @@ export const DEFAULT_LOADOUT = {
 };
 
 function fmtTime(t) { const m = Math.floor(t / 60), s = Math.floor(t % 60); return `${m}:${String(s).padStart(2, '0')}`; }
+
+const esc = t => String(t ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+function unlockName(cat, id) {
+  if (cat === 'weapon') return WEAPONS[id]?.name || id;
+  if (cat === 'perk') return PERKS[id]?.name || id;
+  if (cat === 'lethal') return LETHALS[id]?.name || id;
+  if (cat === 'tactical') return TACTICALS[id]?.name || id;
+  return ATTACHMENTS[cat]?.[id]?.name || id;
+}
 
 const ENDINGS = {
   arrest: { name: 'ENDING: JUSTICE', text: 'Colonel Kessler stood trial for treason. Hayes\'s files dismantled Black Tide, and the team that was disavowed was quietly reinstated.' },
@@ -49,6 +60,84 @@ export class UI {
     this.root.innerHTML = `<div class="bg"></div><div class="screen">${html}</div>`;
   }
 
+  rankBadge() {
+    const r = career.rank, p = career.rankProgress();
+    return `<div class="rankbadge"><div class="ri">${RANK_SHORT[r]}</div><div class="rt"><b>${career.rankName(r)}</b>${career.callsign ? ` · ${esc(career.callsign)}` : ''}<div class="xpbar"><i style="width:${Math.round(p * 100)}%"></i></div><small>${career.xp.toLocaleString()} XP${r < RANKS.length - 1 ? ` · next rank at ${career.nextRankXP(r).toLocaleString()}` : ' · max rank'}</small></div></div>`;
+  }
+
+  career() {
+    const r = career.rank;
+    const ladder = RANKS.map(([xp, n], i) => {
+      const items = Object.entries(UNLOCKS).flatMap(([cat, m]) => Object.entries(m).filter(([, rr]) => rr === i && rr > 0).map(([id]) => unlockName(cat, id)));
+      return `<tr class="${i <= r ? 'got' : ''} ${i === r ? 'cur' : ''}"><td>${RANK_SHORT[i]}</td><td>${n}</td><td>${xp.toLocaleString()}</td><td>${items.join(', ')}</td></tr>`;
+    }).join('');
+    const ch = career.challengeState().map(c => `<div class="chal ${c.done ? 'done' : ''}"><b>${c.name}</b><span>${c.desc}</span><div class="xpbar"><i style="width:${Math.round(c.have / c.goal * 100)}%"></i></div><small>${c.done ? 'COMPLETE' : `${c.have}/${c.goal}`} · +${c.xp.toLocaleString()} XP</small></div>`).join('');
+    this.screen(`<div class="hdr"><button class="back">‹ BACK</button><h1>CAREER</h1></div>
+      ${this.rankBadge()}
+      <div class="callsign"><span>CALLSIGN (shown on leaderboards)</span><input maxlength="16" value="${esc(career.callsign)}" placeholder="e.g. Ghost"><button class="small save">SAVE</button></div>
+      <div class="careergrid"><div><table class="hof ranks"><tr><th></th><th>Rank</th><th>XP</th><th>Unlocks</th></tr>${ladder}</table></div>
+      <div class="brief"><div class="op">CHALLENGES</div><div class="chals">${ch}</div>
+      <p class="small" style="opacity:.6">Earn XP for kills (+100), headshots (+50), finishing missions (more on harder difficulties), flawless runs and challenges.</p></div></div>`, 'career');
+    this.root.querySelector('.back').onclick = () => this.main();
+    const inp = this.root.querySelector('.callsign input');
+    this.root.querySelector('.callsign .save').onclick = () => { career.callsign = inp.value; this.career(); };
+  }
+
+  async leaderboards(board = 'campaign') {
+    const boards = [['campaign', 'CAMPAIGN'], ...playable().map(m => [m.id, m.title.toUpperCase()]), ['laststand', 'LAST STAND']];
+    const tabs = boards.map(([id, n]) => `<div class="opt lbt ${id === board ? 'sel' : ''}" data-b="${id}">${n}</div>`).join('');
+    const mine = career.d.best[board];
+    const render = body => this.screen(`<div class="hdr"><button class="back">‹ BACK</button><h1>LEADERBOARDS</h1></div>
+      <div class="lbtabs">${tabs}</div>
+      <div class="lbbody">${body}</div>
+      <p class="small" style="opacity:.65;text-align:center">${mine ? `Your best here: <b>${mine.score.toLocaleString()}</b> (${DIFFICULTY[mine.diff]?.name || mine.diff}). ` : ''}${career.callsign ? `Posting as <b>${esc(career.callsign)}</b>.` : 'Set a callsign in CAREER to post your scores.'}</p>`, 'lb');
+    const wire = () => {
+      this.root.querySelector('.back').onclick = () => this.main();
+      this.root.querySelectorAll('.lbt').forEach(t => t.onclick = () => this.leaderboards(t.dataset.b));
+    };
+    if (!online()) { render('<p class="lbmsg">Online leaderboards work on the hosted site (ironvanguard-sigma.vercel.app). Your personal bests are saved on this computer.</p>'); wire(); return; }
+    render('<p class="lbmsg">Loading…</p>'); wire();
+    const r = await fetchBoard(board);
+    if (this.root.querySelector('.lbt.sel')?.dataset.b !== board) return;
+    const body = !r.ok ? `<p class="lbmsg">${esc(r.error || 'Leaderboard unavailable.')}</p>` : !r.scores.length ? '<p class="lbmsg">No scores yet. Be the first.</p>' :
+      `<table class="hof"><tr><th>#</th><th>Callsign</th><th>Score</th><th>Difficulty</th><th>Kills</th><th>Time</th><th>Date</th></tr>${r.scores.map((x, i) => `<tr class="${x.name.toLowerCase() === career.callsign.toLowerCase() ? 'me' : ''}"><td>${i + 1}</td><td>${esc(x.name)}</td><td><b>${x.score.toLocaleString()}</b></td><td>${DIFFICULTY[x.diff]?.name || x.diff}</td><td>${x.kills}</td><td>${fmtTime(x.time)}</td><td>${new Date(x.date).toLocaleDateString()}</td></tr>`).join('')}</table>`;
+    this.root.querySelector('.lbbody').innerHTML = body;
+  }
+
+  // XP / rank / unlocks / leaderboard block for the results screens
+  progressBlock(win, s, mode, extra = {}) {
+    if (s.level?.id === 'bootcamp' && !win) return '';
+    const diffKey = Object.keys(DIFFICULTY).find(k => DIFFICULTY[k].name === s.difficulty) || 'regular';
+    const res = career.award(s, { win, diffKey, mode, ...extra });
+    this._lastAward = { res, s, diffKey, mode };
+    const pct0 = Math.round(career.rankProgress(res.before) * 100), pct1 = Math.round(career.rankProgress(res.after) * 100);
+    const lines = res.lines.map(([n, v]) => `<div><span>${n}</span><b>+${v.toLocaleString()}</b></div>`).join('');
+    const lb = win && res.score ? `<div class="lbpost" id="lbpost">${online() ? (career.callsign ? 'Posting score…' : `<span>Enter a callsign to post your score:</span> <input maxlength="16" placeholder="Callsign"> <button class="small post">POST</button>`) : 'Online leaderboards are on the hosted site.'}</div>` : '';
+    return `<div class="xpblock">
+      ${win && res.score ? `<div class="score">SCORE <b>${res.score.toLocaleString()}</b>${res.best && res.best.score === res.score ? ' <span class="pb">NEW PERSONAL BEST</span>' : ''}</div>` : ''}
+      <div class="xplines">${lines || '<div><span>No XP this time</span><b>+0</b></div>'}</div>
+      <div class="xprank"><span>${RANK_SHORT[res.r1]} · ${career.rankName(res.r1)}</span><div class="xpbar"><i style="width:${res.rankUp ? 100 : pct0}%" data-to="${pct1}"></i></div><small>+${res.gained.toLocaleString()} XP</small></div>
+      ${res.rankUp ? `<div class="rankup">PROMOTED: ${career.rankName(res.r1).toUpperCase()}</div>` : ''}
+      ${res.unlocks.length ? `<div class="unlocks">UNLOCKED: ${res.unlocks.join(' · ')}</div>` : ''}
+      ${lb}
+    </div>`;
+  }
+
+  // after the results screen is drawn: animate the bar and post the score
+  afterProgress(board) {
+    const bar = this.root.querySelector('.xprank i');
+    if (bar) setTimeout(() => { if (this._lastAward?.res.rankUp) bar.style.width = '0%'; setTimeout(() => { bar.style.width = bar.dataset.to + '%'; }, this._lastAward?.res.rankUp ? 350 : 0); }, 300);
+    const box = this.root.querySelector('#lbpost'); const A = this._lastAward;
+    if (!box || !A || !online()) return;
+    const post = async () => {
+      const r = await submitScore({ board: board || A.s.level.id, name: career.callsign, score: board === 'campaign' ? A.campaignScore : A.res.score, diff: A.diffKey, time: Math.round(board === 'campaign' ? A.campaignTime : A.s.time), kills: board === 'campaign' ? A.campaignKills : A.s.kills });
+      box.innerHTML = r.ok ? `Score posted as <b>${esc(career.callsign)}</b>. <a href="#" class="seelb">See leaderboard ›</a>` : `Leaderboard: ${esc(r.error || 'unavailable')}`;
+      const l = box.querySelector('.seelb'); if (l) l.onclick = e => { e.preventDefault(); this.leaderboards(board || A.s.level.id); };
+    };
+    if (career.callsign) post();
+    else box.querySelector('.post').onclick = () => { career.callsign = box.querySelector('input').value; if (career.callsign.length >= 2) post(); };
+  }
+
   main() {
     audio.startMusic('menu');
     const C = campaign.state, act = campaign.active;
@@ -56,6 +145,7 @@ export class UI {
     const tags = n => Array.from({ length: C.maxLives }, (_, i) => `<i class="${i < n ? 'on' : ''}"></i>`).join('');
     this.screen(`
       <div class="title"><div class="t1">IRON VANGUARD</div><div class="t2">BLACK TIDE</div></div>
+      ${this.rankBadge()}
       <div class="mainnav">
         ${act ? `<button data-a="cont" class="primary">CONTINUE CAMPAIGN<small>Mission ${campaign.missionNumber(cur.id)} — ${cur.title} &nbsp;·&nbsp; <span class="tags">${tags(C.lives)}</span> ${C.lives} ${C.lives === 1 ? 'life' : 'lives'}</small></button>` : ''}
         <button data-a="newCampaign" class="${act ? '' : 'primary'}">NEW CAMPAIGN<small>Ironman: lose every life and you start over</small></button>
@@ -64,9 +154,12 @@ export class UI {
         <button data-a="loadoutMain">LOADOUT</button>
         <button data-a="settingsMain">SETTINGS</button>
         <button data-a="controlsMain">CONTROLS</button>
+        <button data-a="leaderboards">LEADERBOARDS</button>
+        <button data-a="career">CAREER</button>
         <button data-a="hof">HALL OF FAME</button>
       </div>
-      <div class="foot">Built with three.js • CC0 art from Poly Haven • Fully synthesized audio</div>`, 'main');
+      <div class="foot">Built with three.js · CC0 art from Poly Haven · Mixamo animation · recorded gunfire · neural voices</div>`, 'main');
+    const rb = this.root.querySelector('.rankbadge'); if (rb) rb.onclick = () => this.career();
     this.root.querySelectorAll('[data-a]').forEach(b => b.onclick = () => {
       const a = b.dataset.a;
       if (a === 'cont') this.continueCampaign();
@@ -167,13 +260,16 @@ export class UI {
       const dmg = Math.min(1, (s.damage[0] * (s.pellets || 1)) / 130), rof = Math.min(1, s.rpm / 900), rng = Math.min(1, s.range[1] / 120), mob = Math.min(1, (s.move - 0.8) / 0.3), ctl = Math.max(0.05, 1 - s.recoil[0] / 4.5);
       return [['DAMAGE', dmg], ['FIRE RATE', rof], ['RANGE', rng], ['MOBILITY', mob], ['CONTROL', ctl]].map(([n, v]) => `<div class="stat"><span>${n}</span><div><i style="width:${Math.round(v * 100)}%"></i></div></div>`).join('') + `<div class="stat"><span>MAGAZINE</span><b>${s.mag}</b></div>`;
     };
-    const wlist = slot => Object.entries(WEAPONS).filter(([, w]) => w.slot === slot).map(([id, w]) => `<div class="opt w ${L[slot] === id ? 'sel' : ''}" data-slot="${slot}" data-w="${id}"><b>${w.name}</b><small>${w.type}</small></div>`).join('');
+    career.sanitize(L);
+    const lk = (cat, id) => career.unlocked(cat, id) ? '' : ` locked" title="Unlocks at ${RANKS[career.needRank(cat, id)][1]}`;
+    const lkTag = (cat, id) => career.unlocked(cat, id) ? '' : `<em class="lock">🔒 ${RANK_SHORT[career.needRank(cat, id)]}</em>`;
+    const wlist = slot => Object.entries(WEAPONS).filter(([, w]) => w.slot === slot).map(([id, w]) => `<div class="opt w ${L[slot] === id ? 'sel' : ''}${lk('weapon', id)}" data-slot="${slot}" data-w="${id}"><b>${w.name}</b><small>${w.type}</small>${lkTag('weapon', id)}</div>`).join('');
     const attSel = id => {
       const allow = allowedAttachments(id); const cur = L.att[id] || (L.att[id] = {});
-      return Object.entries(allow).filter(([, list]) => list.length).map(([cat, list]) => `<div class="attrow"><span>${{ optic: 'OPTIC', muzzle: 'MUZZLE', under: 'UNDERBARREL', mag: 'MAGAZINE' }[cat]}</span>${list.map(a => `<div class="opt a ${(cur[cat] || list[0]) === a ? 'sel' : ''}" data-id="${id}" data-cat="${cat}" data-att="${a}">${ATTACHMENTS[cat][a].name}</div>`).join('')}</div>`).join('');
+      return Object.entries(allow).filter(([, list]) => list.length).map(([cat, list]) => `<div class="attrow"><span>${{ optic: 'OPTIC', muzzle: 'MUZZLE', under: 'UNDERBARREL', mag: 'MAGAZINE' }[cat]}</span>${list.map(a => `<div class="opt a ${(cur[cat] || list[0]) === a ? 'sel' : ''}${lk(cat, a)}" data-id="${id}" data-cat="${cat}" data-att="${a}">${ATTACHMENTS[cat][a].name}${lkTag(cat, a)}</div>`).join('')}</div>`).join('');
     };
-    const sel = (obj, key) => Object.entries(obj).map(([k, v]) => `<div class="opt g ${L[key] === k ? 'sel' : ''}" data-key="${key}" data-v="${k}">${v.name}</div>`).join('');
-    const perks = Object.entries(PERKS).map(([k, p]) => `<div class="opt p ${L.perks.includes(k) ? 'sel' : ''}" data-perk="${k}"><b>${p.name}</b><small>${p.desc}</small></div>`).join('');
+    const sel = (obj, key) => Object.entries(obj).map(([k, v]) => `<div class="opt g ${L[key] === k ? 'sel' : ''}${lk(key, k)}" data-key="${key}" data-v="${k}">${v.name}${lkTag(key, k)}</div>`).join('');
+    const perks = Object.entries(PERKS).map(([k, p]) => `<div class="opt p ${L.perks.includes(k) ? 'sel' : ''}${lk('perk', k)}" data-perk="${k}"><b>${p.name}</b><small>${p.desc}</small>${lkTag('perk', k)}</div>`).join('');
     this.screen(`
       <div class="hdr"><button class="back">‹ BACK</button><h1>LOADOUT</h1></div>
       <div class="lgrid">
@@ -183,10 +279,10 @@ export class UI {
       </div>`, 'loadout');
     this.root.querySelector('.back').onclick = () => { this.save(); back(); };
     const re = () => { this.save(); this.loadoutScreen(back); };
-    this.root.querySelectorAll('.opt.w').forEach(o => o.onclick = () => { L[o.dataset.slot] = o.dataset.w; re(); });
-    this.root.querySelectorAll('.opt.a').forEach(o => o.onclick = () => { (L.att[o.dataset.id] ||= {})[o.dataset.cat] = o.dataset.att; re(); });
-    this.root.querySelectorAll('.opt.g').forEach(o => o.onclick = () => { L[o.dataset.key] = o.dataset.v; re(); });
-    this.root.querySelectorAll('.opt.p').forEach(o => o.onclick = () => {
+    this.root.querySelectorAll('.opt.w:not(.locked)').forEach(o => o.onclick = () => { L[o.dataset.slot] = o.dataset.w; re(); });
+    this.root.querySelectorAll('.opt.a:not(.locked)').forEach(o => o.onclick = () => { (L.att[o.dataset.id] ||= {})[o.dataset.cat] = o.dataset.att; re(); });
+    this.root.querySelectorAll('.opt.g:not(.locked)').forEach(o => o.onclick = () => { L[o.dataset.key] = o.dataset.v; re(); });
+    this.root.querySelectorAll('.opt.p:not(.locked)').forEach(o => o.onclick = () => {
       const k = o.dataset.perk; if (L.perks.includes(k)) L.perks = L.perks.filter(p => p !== k); else { L.perks.push(k); if (L.perks.length > 2) L.perks.shift(); }
       re();
     });
@@ -323,11 +419,13 @@ export class UI {
       ${reason ? `<p class="reason">${reason}</p>` : ''}
       ${win && s.ending ? `<div class="ending"><div class="en">${ENDINGS[s.ending]?.name}</div><p>${ENDINGS[s.ending]?.text}</p></div>` : ''}
       ${this.statsBlock(s)}
+      ${this.progressBlock(win, s, mode)}
       <div class="btns">
         <button class="primary" data-a="retry">${win ? 'REPLAY' : 'RETRY'}</button>
         <button data-a="menu">MISSION SELECT</button>
         <button data-a="main">MAIN MENU</button>
       </div></div>`, 'resultsS');
+    this.afterProgress();
     this.root.querySelectorAll('[data-a]').forEach(b => b.onclick = () => {
       if (b.dataset.a === 'retry') this.onDeploy(s.level.id, mode); else if (b.dataset.a === 'main') this.main(); else this.campaign();
     });
@@ -342,6 +440,7 @@ export class UI {
       <div class="op">${s.level.name}</div>
       ${reason ? `<p class="reason">${reason}</p>` : ''}
       ${this.livesRow(C.lives, C.maxLives, true)}
+      ${this.progressBlock(false, s, 'campaign')}
       <p class="lifeleft">${C.lives} ${C.lives === 1 ? 'LIFE' : 'LIVES'} REMAINING</p>
       <div class="btns">
         <button class="primary" data-a="respawn">${sv && !sv.fresh && sv.levelId === s.level.id ? 'RESPAWN AT CHECKPOINT' : 'RESTART MISSION'} ›</button>
@@ -359,6 +458,7 @@ export class UI {
       <div class="op">ALL ${C.maxLives} LIVES LOST</div>
       ${reason ? `<p class="reason">${reason}</p>` : ''}
       ${this.livesRow(0, C.maxLives)}
+      ${this.progressBlock(false, s, 'campaign')}
       <p>Your campaign ended on <b>Mission ${campaign.missionNumber(s.level.id)}: ${s.level.name}</b>. The campaign has been reset to Mission 1.</p>
       <div class="rs"><div><b>${C.idx}</b><span>MISSIONS CLEARED</span></div><div><b>${C.kills + (s.kills || 0)}</b><span>TOTAL KILLS</span></div><div><b>${C.deaths}</b><span>DEATHS</span></div><div><b>${DIFFICULTY[C.difficulty]?.name}</b><span>DIFFICULTY</span></div></div>
       <div class="btns"><button class="primary" data-a="new">START NEW CAMPAIGN</button><button data-a="hof">HALL OF FAME</button><button data-a="main">MAIN MENU</button></div></div>`, 'resultsS');
@@ -368,7 +468,9 @@ export class UI {
   }
 
   campaignWin(s) {
+    const flawless = campaign.state.deathsHere === 0 && s.level.id !== 'bootcamp';
     const out = campaign.complete(s.level.id, s), C = campaign.state;
+    const prog = this.progressBlock(true, s, 'campaign', { flawless, campaignDone: !!out.finished });
     this.clearSave();
     const nextM = out.nextId ? STORY.find(m => m.id === out.nextId) : null;
     this.screen(`<div class="results win">
@@ -378,6 +480,7 @@ export class UI {
       ${out.bonus ? `<p class="bonus">${out.bonus}</p>` : ''}
       ${this.livesRow(C.lives, C.maxLives)}
       ${this.statsBlock(s)}
+      ${prog}
       ${out.finished ? `<p class="small" style="opacity:.65">Your run is in the Hall of Fame. Choose differently at Fort Varga to see the other ending.</p>` : `<p class="nextm">NEXT: Mission ${campaign.missionNumber(nextM.id)} — ${nextM.title}</p>`}
       <div class="btns">
         ${out.finished ? '<button class="primary" data-a="credits">CREDITS</button><button data-a="hof">HALL OF FAME</button>' : '<button class="primary" data-a="next">NEXT MISSION ›</button>'}
@@ -386,6 +489,12 @@ export class UI {
     const n = this.root.querySelector('[data-a=next]'); if (n) n.onclick = () => out.newAct ? this.actCard(out.nextId, () => this.onDeploy(out.nextId, 'campaign')) : this.onDeploy(out.nextId, 'campaign');
     const h = this.root.querySelector('[data-a=hof]'); if (h) h.onclick = () => this.hof();
     const cr = this.root.querySelector('[data-a=credits]'); if (cr) cr.onclick = () => this.credits();
+    this.afterProgress();
+    if (out.finished && online() && career.callsign) {
+      const A = this._lastAward, dk = A.diffKey;
+      const score = Math.round((C.kills * 100 + C.headshots * 50 + C.lives * 3000 + C.flawless * 1500 + Math.max(0, 14400 - C.time)) * (DIFF_MULT[dk] || 1));
+      submitScore({ board: 'campaign', name: career.callsign, score, diff: C.difficulty, time: Math.round(C.time), kills: C.kills });
+    }
     this.root.querySelector('[data-a=main]').onclick = () => this.main();
   }
 
