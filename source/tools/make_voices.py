@@ -41,7 +41,11 @@ for f in os.listdir(SRC):
         for m in re.finditer(r"radio\('([A-Z]+)', '((?:[^'\\]|\\.)*)'", open(os.path.join(SRC, f), encoding='utf8').read()):
             lines.append((m.group(1), unesc(m.group(2))))
 en = open(os.path.join(SRC, 'enemies.js'), encoding='utf8').read()
-block = re.search(r"const L = \{(.*?)\}\[kind\]", en, re.S).group(1)
+blocks = re.findall(r"const L = \{(.*?)\}\[kind\]", en, re.S)
+# squadmate callouts (allies with a name speak through the radio as OKAFOR)
+for x in re.findall(r"'((?:[^'\\]|\\.)*)'", blocks[0]):
+    if not re.fullmatch(r'[a-z]+', x): lines.append(('OKAFOR', unesc(x)))
+block = blocks[-1]
 callouts = [unesc(x) for x in re.findall(r"'((?:[^'\\]|\\.)*)'", block) if not re.fullmatch(r'[a-z]+', x)]
 for i, t in enumerate(callouts):
     for vi in range(len(ENEMY)):

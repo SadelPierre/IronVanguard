@@ -8,6 +8,8 @@ import { updateSun } from './env.js';
 import { audio } from './audio.js';
 import { LEVELS, seedLevel } from './levels.js';
 import { Pickups } from './pickups.js';
+import { Weather } from './weather.js';
+import { Gunship } from './gunship.js';
 import { keyName } from './input.js';
 import { campaign, CAST } from './campaign.js';
 
@@ -53,12 +55,16 @@ export class Game {
     this.objectives = L.objectives;
     this.world.buildNav(0.8);
     onProgress(0.85, 'Issuing equipment');
-    const lo = save && save.weapons ? { ...loadout, primary: save.weapons[0].id, secondary: save.weapons[1].id } : loadout;
+    let lo = save && save.weapons ? { ...loadout, primary: save.weapons[0].id, secondary: save.weapons[1].id } : loadout;
+    if (def.loadout && !(save && save.weapons)) lo = { ...lo, ...def.loadout, att: { ...lo.att, ...(def.loadout.att || {}) } };
+    this.timeScale = 1; this.weather = null; this.gunship = null;
     await this.player.setLoadout(lo);
     this.player.loadout = loadout;
     this.spawnPoint = L.spawn.clone();
     this.player.spawn(this.world.findSafeSpot(L.spawn), L.spawnYaw || 0);
     this.saveData = save;
+    if (L.weather) this.weather = new Weather(this, L.weather);
+    if (L.gunship) { this.gunship = new Gunship(this, L.gunship); }
     this.engine.setScene(scene);
     this.engine.camera.fov = this.settings.fov; this.engine.camera.far = L.far || 1500; this.engine.camera.updateProjectionMatrix();
     // night extras
@@ -88,6 +94,7 @@ export class Game {
   }
 
   disposeLevel() {
+    this.weather?.dispose(); this.weather = null; this.breaches = []; this.gunship?.dispose(); this.gunship = null; this.timeScale = 1; clearTimeout(this._smT);
     if (this.enemies) this.enemies.clear();
     if (this.scene) {
       this.scene.traverse(o => { if (o.geometry && !o.isSkinnedMesh) o.geometry.dispose?.(); });
@@ -97,8 +104,19 @@ export class Game {
 
   // ---------------------------------------------------------------- combat
   bullet(origin, dir, st, isPlayer) {
-    const wh = this.world.raycast(origin, dir, 400);
-    const maxD = wh ? wh.dist : 400;
+    if (isPlayer && st.scope) {
+      // real ballistics for the sniper: drop + wind over the bullet's time of flight (zeroed at 100 m)
+      const probe = this.world.raycast(origin, dir, 600), pe = this.enemies.raycast(origin, dir, probe ? probe.dist : 600);
+      const dist = Math.min(pe ? pe.dist : 600, probe ? probe.dist : 600);
+      const v = 820, t = dist / v, t0 = 100 / v;
+      const drop = 0.5 * 9.81 * (t * t - t0 * t0 * (dist / 100));
+      const wind = this.level.wind || null;
+      const off = new THREE.Vector3(0, -drop, 0); if (wind) off.addScaledVector(wind, t * t * 2.2);
+      dir = dir.clone().multiplyScalar(dist).add(off).normalize();
+      this.lastShotRange = dist;
+    }
+    const wh = this.world.raycast(origin, dir, 600);
+    const maxD = wh ? wh.dist : 600;
     const eh = this.enemies.raycast(origin, dir, maxD);
     if (eh) {
       const e = eh.enemy;
@@ -220,6 +238,7 @@ export class Game {
     const R = 8 * scale;
     for (const e of this.enemies.list) {
       if (!e.alive || (e.hostage && !this.hitHostages)) continue;
+      if (e.friendly) { if (byPlayer && e.pos.distanceTo(pos) < 8 * scale * 0.8) this.onFriendlyFire?.(e); continue; }
       const d = e.pos.distanceTo(pos);
       if (d < R && this.world.lineOfSight(pos.clone().add(V(0, 0.4, 0)), e.pos.clone().add(V(0, 1, 0)))) {
         const dmg = 160 * (1 - d / R) + 20;
@@ -263,7 +282,7 @@ export class Game {
     const P = this.player;
     switch (o.type) {
       case 'reach': done = Math.hypot(P.pos.x - o.pos.x, P.pos.z - o.pos.z) < (o.radius || 4) && (!o.cond || o.cond(this)); break;
-      case 'kill': { const left = this.enemies.list.filter(e => e.alive && !e.hostage && (!o.filter || o.filter(e))).length; o.left = left; done = left === 0; this.hud.setObjectiveCount(left > 0 ? `${left} remaining` : ''); break; }
+      case 'kill': { const left = this.enemies.list.filter(e => e.alive && !e.hostage && !e.friendly && (!o.filter || o.filter(e))).length; o.left = left; done = left === 0; this.hud.setObjectiveCount(left > 0 ? `${left} remaining` : ''); break; }
       case 'interact': done = o.done; break;
       case 'survive': { const r = Math.max(0, o.time - o.t); this.hud.setObjectiveCount(`${Math.ceil(r)}s`); done = r <= 0 && (!o.cond || o.cond(this)); break; }
       case 'custom': done = o.check(this, dt, o); break;
@@ -276,7 +295,7 @@ export class Game {
     if (o.waypoint === false) return null;
     if (o.pos) return o.pos;
     if (o.type === 'kill' && o.left !== undefined && o.left <= 3) {
-      const e = this.enemies.list.find(e => e.alive && !e.hostage && (!o.filter || o.filter(e)));
+      const e = this.enemies.list.find(e => e.alive && !e.hostage && !e.friendly && (!o.filter || o.filter(e)));
       return e ? e.pos.clone().add(V(0, 1.9, 0)) : null;
     }
     return o.waypointPos || null;
@@ -355,6 +374,44 @@ export class Game {
     this.hud.toast(sv.manual ? 'SAVED GAME LOADED' : 'CHECKPOINT LOADED', 2);
   }
 
+  // ---------------------------------------------------------------- breach & clear
+  // door: { x, z, horiz (door spans x), zone } — builds a door in a 1.3 m doorway and an interact point outside it
+  addBreach(o) {
+    const M = new THREE.MeshStandardMaterial({ color: 0x5b4330, roughness: 0.7 });
+    const g = new THREE.Group();
+    const door = new THREE.Mesh(new THREE.BoxGeometry(o.horiz ? 1.28 : 0.07, 2.28, o.horiz ? 0.07 : 1.28), M); door.position.y = 1.14; door.castShadow = true; g.add(door);
+    const knob = new THREE.Mesh(new THREE.SphereGeometry(0.035), new THREE.MeshStandardMaterial({ color: 0x8a7a50, metalness: 1, roughness: 0.3 })); knob.position.set(o.horiz ? 0.5 : 0.06, 1.0, o.horiz ? 0.06 : 0.5); g.add(knob);
+    g.position.set(o.x, 0, o.z); this.scene.add(g);
+    const col = this.world.addCollider(new THREE.Vector3(o.x - (o.horiz ? 0.65 : 0.06), 0, o.z - (o.horiz ? 0.06 : 0.65)), new THREE.Vector3(o.x + (o.horiz ? 0.65 : 0.06), 2.3, o.z + (o.horiz ? 0.06 : 0.65)), 'wood');
+    const b = { ...o, g, col, done: false };
+    (this.breaches ||= []).push(b);
+    this.interactables.push({ pos: new THREE.Vector3(o.x + (o.out?.[0] || 0), 0, o.z + (o.out?.[1] || 0)), radius: 1.8, label: 'Hold <b>[F]</b> to breach', time: 0.6, progress: 0, onDone: () => this.breach(b) });
+    return b;
+  }
+  breach(b) {
+    if (b.done) return; b.done = true;
+    this.world.removeCollider(b.col);
+    const P = this.player, dir = new THREE.Vector3(b.x - P.pos.x, 0, b.z - P.pos.z).normalize();
+    b.vel = dir.clone().multiplyScalar(7).add(new THREE.Vector3(0, 2.5, 0)); b.spin = (Math.random() - 0.5) * 8;
+    audio.play('explosion', { pos: b.g.position, vol: 0.6, rate: 1.6, reverb: 0.4 }); audio.play('hit_wood', { pos: b.g.position, vol: 1.2 });
+    for (let i = 0; i < 14; i++) this.effects.dust.spawn(b.g.position.clone().add(new THREE.Vector3(0, 1 + Math.random(), 0)), dir.clone().multiplyScalar(3 + Math.random() * 3).add(new THREE.Vector3((Math.random() - 0.5) * 2, Math.random() * 2, (Math.random() - 0.5) * 2)), { life: 0.8, size: 0.06, color: [0.4, 0.3, 0.2], alpha: 1, grav: 9 });
+    P.shake = Math.min(1, P.shake + 0.4);
+    for (const e of this.enemies.list) if (e.alive && !e.friendly && (b.zone ? e.zone === b.zone : e.pos.distanceTo(b.g.position) < 9)) { e.stun = Math.max(e.stun, 0.9); e.state = 'combat'; e.awareness = 1; e.lastSeen = P.pos.clone(); e.lastSeenT = this.time; e.react = 0.6; }
+    this.slowMo(2.6, 0.32); this.hud.toast('BREACH!', 1.2);
+    b.onBreach?.(this);
+  }
+  updateBreaches(dt) {
+    for (const b of this.breaches || []) if (b.vel) {
+      b.vel.y -= 9.8 * dt; b.g.position.addScaledVector(b.vel, dt); b.g.rotation.x += b.spin * dt * 0.3; b.g.rotation.z += b.spin * dt;
+      if (b.g.position.y < 0) { b.g.position.y = 0; b.vel = null; b.g.rotation.set(Math.PI / 2 * (Math.random() < 0.5 ? 1 : -1), b.g.rotation.y, 0); }
+    }
+  }
+  slowMo(realSeconds, scale) {
+    this.timeScale = scale; clearTimeout(this._smT);
+    if (audio.ctx) audio.sfx.gain.setTargetAtTime(0.6, audio.ctx.currentTime, 0.05);
+    this._smT = setTimeout(() => { this.timeScale = 1; if (audio.ctx) audio.sfx.gain.setTargetAtTime(1, audio.ctx.currentTime, 0.2); }, realSeconds * 1000);
+  }
+
   // ---------------------------------------------------------------- story radio
   radio(who, text, delay = 0) {
     const t = setTimeout(async () => {
@@ -408,11 +465,13 @@ export class Game {
     if (this.state !== 'playing' || this.paused) return;
     this.time += dt; this.levelTime += dt;
     const input = this.input;
-    this.player.update(dt, input);
+    if (this.gunship) this.gunship.update(dt, input); else this.player.update(dt, input);
     this.enemies.update(dt);
     this.updateGrenades(dt);
     if (!this.failed && !this.completed) { this.updateObjective(dt); const shown = this.updateInteract(dt); this.pickups.update(dt, shown); }
     this.level.update?.(this, dt);
+    this.weather?.update(dt);
+    this.updateBreaches(dt);
     // falling targets
     if (this.fallingTargets) for (const m of this.fallingTargets) { if (m.userData.fall < 1) { m.userData.fall = Math.min(1, m.userData.fall + dt * 4); m.rotation.x = -m.userData.fall * Math.PI / 2 * 0.95; } }
     const cam = this.engine.camera;

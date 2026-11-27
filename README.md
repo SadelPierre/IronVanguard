@@ -36,11 +36,19 @@ The hosted site uses **Vercel Web Analytics** (enabled) and **Google Analytics 4
 ## Missions
 | # | Mission | Setting | Objectives |
 |---|---------|---------|------------|
-| 00 | Boot Camp | Training range, morning | Hip-fire, long-range shooting, grenades, shoot-house clearing, timed finish |
-| 01 | Operation Dust Devil | Desert village, midday | Infiltrate, eliminate all hostiles, download the intel, survive reinforcements, reach the LZ |
-| 02 | Operation Iron Harbor | Dockyard at sunset | Plant C4 on two caches, get clear of the blast, fight the QRF to the extraction boat |
-| 03 | Operation Midnight | Night-time city streets | Clear the safehouse, free the hostage, escort him to extraction. Night vision and a flashlight are available. |
-| 04 | Last Stand | Desert village at dusk | Survive 5 waves and resupply at the ammo crate |
+| 01 | Boot Camp | Training range, morning | Hip-fire, long-range shooting, grenades, shoot-house clearing, timed finish |
+| 02 | Operation Dust Devil | Desert village, midday | Infiltrate, eliminate all hostiles, download the intel, survive reinforcements, reach the LZ |
+| 03 | Operation Overwatch | Desert ridge at dawn | Sniper support with a bolt-action rifle. Bullet drop and crosswind. Clear the rooftops, cover your squad, kill the enemy sniper, hold the ridge |
+| 04 | Operation Iron Harbor | Dockyard at sunset | Plant C4 on two caches, get clear of the blast, fight the QRF to the extraction boat |
+| 05 | Operation Deep Freeze | Arctic radar station, night blizzard | Stealth with suppressed weapons. Jam the comms mast, breach the control room (slow motion), steal the flight logs, blow the radar dome. If the alarm goes up, the hangar empties |
+| 06 | Angel of Death | AC-130 gunship over the village | Thermal camera with 25 mm, 40 mm and 105 mm guns. Cover your squad (IR strobes) to the LZ and destroy the technicals. Three friendly-fire hits fail the mission |
+| 07 | Operation Midnight | Night-time city streets | Clear the safehouse, free the hostage, escort them to extraction. Night vision and a flashlight are available |
+| 08 | Burn Notice | Old Town at dawn, thunderstorm | Escape the burning safehouse, breach the door, beat the kill team, fight down the street to Okafor |
+| — | Last Stand (bonus) | Desert village at dusk | Survive 5 waves and resupply at the ammo crate |
+
+Black Tide, Convoy, Skyfall and Iron Dawn are coming in the next update.
+
+**Squadmates** fight beside you in Overwatch, Angel of Death and Burn Notice. **Breach and clear:** hold the interact key at a marked door to kick it in, which triggers slow motion. **Weather:** snow (Deep Freeze), rain with lightning (Burn Notice), and wind that moves your sniper rounds.
 
 ## Loadout (menu: LOADOUT)
 - **Primary weapons:** M4A1, AK-47, MP5, M870 shotgun, M249 LMG, Bolt-Action 7.62 sniper (scoped; hold breath with Shift)

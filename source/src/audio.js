@@ -250,6 +250,8 @@ export class Audio {
     B.waves = [this.buf(loopNoise(801, 14, 900, 120, 0.12, 0.85))];
     B.crickets = [this.buf(crickets(802, 8))];
     B.hum = [this.buf(loopNoise(803, 8, 200, 40, 0.05, 0.3))];
+    B.rain = [this.buf(loopNoise(804, 10, 7000, 700, 0.25, 0.2))];
+    B.engine = [this.buf(loopNoise(805, 6, 160, 30, 3.0, 0.25))];
   }
 
   setEnvironment(type) {

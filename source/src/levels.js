@@ -30,6 +30,12 @@ function enemy(G, x, z, o = {}) {
   return G.enemies.spawn({ pos: V(x, o.y || 0, z), yaw: o.yaw ?? Math.PI, tint: o.tint ?? G.level.tint, zone: o.zone, state: o.state, patrol: o.patrol?.map(p => V(p[0], 0, p[1])), hold: o.hold, hp: o.hp, hostage: o.hostage });
 }
 
+// friendly squadmate: fights beside you, follows a scripted route (stopping at holdAt) or the player
+function ally(G, x, z, o = {}) {
+  const e = G.enemies.spawn({ pos: V(x, 0, z), yaw: o.yaw ?? Math.PI, tint: o.tint || 'woodland', friendly: true, name: o.name, route: o.route, hp: 99999 });
+  Object.assign(e, { holdAt: o.holdAt, stopToFight: o.stopToFight ?? true, routeSpeed: o.speed || 3, accuracy: o.accuracy ?? 0.24, squadSlot: o.slot || 0, engageRange: o.range || 60 });
+  return e;
+}
 function sandbagWall(W, M, x, z, len, horiz = true, h = 0.9) {
   const g = new THREE.Group();
   const rows = Math.round(h / 0.22), per = Math.ceil(len / 0.6);
@@ -194,6 +200,75 @@ async function desertVillage(G, M) {
 }
 
 // ---------------------------------------------------------------- LEVELS
+// Old Town (Zagoria): two rows of brick blocks on a long street with the safehouse at the north end
+async function oldTown(G, M, prog = () => {}) {
+  const W = G.world;
+  // sidewalks
+  W.box(-9, 0, -22, 6, 0.15, 124, M.floor, { texSize: 2, cast: false }); W.box(9, 0, -22, 6, 0.15, 124, M.floor, { texSize: 2, cast: false });
+  // row buildings left (x<-12) and right (x>12)
+  const blocks = [[-50, -32, 12], [-26, -12, 10], [-10, 8, 12], [12, 32, 10]];
+  let bi = 0;
+  for (const side of [-1, 1]) {
+    for (const [z0, z1] of [[-80, -58], [-56, -36], [-24, -6], [-2, 18], [22, 38]]) {
+      const cx = side * 22, cz = (z0 + z1) / 2, d = z1 - z0, h = 6.5 + ((bi++ * 37) % 3);
+      const mat = bi % 3 === 0 ? M.plaster : M.brick;
+      building(W, cx, cz, 18, d, h, mat, { roofMat: M.concrete, floorMat: M.floor, doors: { [side < 0 ? 'e' : 'w']: [0.5] }, windows: { [side < 0 ? 'e' : 'w']: [0.2, 0.8] }, parapet: 0.8 });
+      // upper floor windows (decorative glow)
+      for (let k = 0; k < 3; k++) {
+        const wz = z0 + d * (0.2 + k * 0.3), lit = rnd() < 0.35;
+        const win = new THREE.Mesh(new THREE.PlaneGeometry(1.1, 1.3), new THREE.MeshStandardMaterial({ color: 0x111111, emissive: lit ? 0xffb066 : 0x0a0d12, emissiveIntensity: lit ? 2.2 : 1, roughness: 0.2, metalness: 0.5 }));
+        win.position.set(cx - side * 9.02 * 1, 4.5, wz); win.rotation.y = side < 0 ? Math.PI / 2 : -Math.PI / 2; G.scene.add(win);
+      }
+    }
+  }
+  // cross street at z=-46/-30 handled by gaps; end wall north & south
+  W.wall(-40, -84, 40, -84, 4, 0.5, M.brick); W.wall(-40, 40, 40, 40, 4, 0.5, M.brick);
+  // safehouse (north end, across the street)
+  prog(0.55, 'Fortifying the safehouse');
+  building(W, 0, -72, 16, 12, 4, M.plaster, { roofMat: M.concrete, floorMat: M.wood, doors: { s: [0.5] }, windows: { s: [0.15, 0.85], e: [0.5], w: [0.5] } });
+  wallOpen(W, -8, -72, 8, -72, 4, 0.25, M.plaster, [{ at: 0.25, w: 1.3, y0: 0, y1: 2.3 }, { at: 0.75, w: 1.3, y0: 0, y1: 2.3 }]);
+  wallOpen(W, 0, -78, 0, -72, 4, 0.25, M.plaster, []);
+  // cars & props on street
+  await Promise.all([
+    W.prop('covered_car', -4, 20, { rotY: 0.05 }), W.prop('covered_car', 4.5, -12, { rotY: Math.PI + 0.1 }), W.prop('covered_car', -4.2, -40, { rotY: -0.1 }), W.prop('covered_car', 4, -55, { rotY: 3.0 }),
+    W.prop('concrete_road_barrier', -2, -60, { rotY: 0.2 }), W.prop('concrete_road_barrier', 2.5, -61, { rotY: -0.3 }), W.prop('metal_jerrycan_green', 3, -58, { explosive: true }), W.prop('propane_tank', -7, -28, { explosive: true }),
+    W.prop('Barrel_01', 8, 4), W.prop('barrel_03', -8, -18), W.prop('cardboard_box_01', 7, -32), W.prop('wooden_crate_01', -7.5, -50), W.prop('utility_box_01', 7.5, 10),
+    W.prop('old_tyre', -6, 2, { y: 0.3, rotY: 1.2 }), W.prop('medical_box', 3, -75), W.prop('old_military_crate', -4, -76, { mat: 'wood' }),
+  ]);
+  // burnt-out car shells
+  for (const [x, z, r] of [[3.5, 8, 0.2], [-3.8, -26, 2.9]]) vehicleWreck(G, M, x, z, r);
+  // street dressing on the facades and sidewalks (CC0 Poly Haven)
+  const street = [];
+  for (const side of [-1, 1]) for (const [z0, z1] of [[-80, -58], [-56, -36], [-24, -6], [-2, 18], [22, 38]]) {
+    const fx = side * 12.84, ry = side < 0 ? Math.PI / 2 : -Math.PI / 2, d = z1 - z0;
+    street.push(W.prop('rollershutter_door', fx, z0 + d * 0.33, { rotY: ry, y: 0.15, collide: false }));
+    street.push(W.prop('exterior_aircon_unit', fx, z0 + d * 0.66, { rotY: ry, y: 3.3, collide: false }));
+    street.push(W.prop('security_light', fx - side * 0.1, (z0 + z1) / 2, { rotY: ry, y: 2.75, collide: false }));
+    if ((z0 + 80) % 3 === 0) street.push(W.prop('metal_trash_can', side * 11.4, z0 + d * 0.15, { rotY: ry, y: 0.15 }));
+    street.push(W.prop('fire_hydrant', side * 6.6, z0 + d * 0.8, { y: 0.15, rotY: ry, collide: false }));
+  }
+  street.push(W.prop('utility_box_02', 12.2, -44, { rotY: -Math.PI / 2, y: 0.15 }), W.prop('utility_box_02', -12.2, 20, { rotY: Math.PI / 2, y: 0.15 }),
+    W.prop('water_manhole_cover', 1.5, 0, { collide: false, cast: false }), W.prop('water_manhole_cover', -1.2, -48, { collide: false, cast: false }),
+    W.prop('concrete_road_barrier_02', -1, -66, { rotY: 0.1 }), W.prop('plastic_crate_03', 8.5, -20, { y: 0.15 }), W.prop('plastic_crate_03', 8.6, -20, { y: 0.42, rotY: 0.4 }));
+  await Promise.all(street);
+  roadPaint(G, [[0, 38, 0, -80, 0.12, true]], 0xd8d8d0);
+  // spawn-side cover (spawn at 0,32)
+  await Promise.all([W.prop('concrete_road_barrier', -2.5, 26, { rotY: 0.15 }), W.prop('concrete_road_barrier', 3, 22, { rotY: -0.2 }), W.prop('concrete_road_barrier', -3, 4, { rotY: 0.3 }), W.prop('concrete_road_barrier', 2.5, -22, { rotY: -0.1 }), W.prop('wooden_crate_01', 4, 27, { mat: 'wood' })]);
+  sandbagWall(W, M, 0, -3, 3); sandbagWall(W, M, -1, -44, 3.5);
+  wreck(G, M, -3.5, 14, 0.1);
+  G._supplies = [V(7.5, 0, 28), V(-7.5, 0, -34), V(7.5, 0, -62)];
+  // street lamps
+  for (const [x, z] of [[-6.5, 30], [6.5, 10], [-6.5, -10], [6.5, -34], [-6.5, -54]]) {
+    await W.prop('street_lamp_01', x, z, { rotY: x < 0 ? -Math.PI / 2 : Math.PI / 2 });
+    const l = new THREE.PointLight(0xffb36b, 30, 20, 2); l.position.set(x + (x < 0 ? 1.3 : -1.3), 3.7, z); G.scene.add(l);
+  }
+  // safehouse interior light + fire barrel
+  { const l = new THREE.PointLight(0xff9d5c, 6, 10, 2); l.position.set(0, 3, -75); G.scene.add(l); }
+  const fireP = V(-5.5, 0, -64); await W.prop('barrel_03', fireP.x, fireP.z);
+  const fireL = new THREE.PointLight(0xff7a2a, 12, 12, 2); fireL.position.set(fireP.x, 1.6, fireP.z); G.scene.add(fireL);
+  return { fireP, fireL };
+}
+
 export const LEVELS = [
   {
     id: 'bootcamp', name: 'BOOT CAMP', location: 'Camp Hornet, Nevada', time: '09:20 Local', reverb: 'outdoor',
@@ -486,69 +561,7 @@ export const LEVELS = [
       const nterr = await terrain(G, { tex: 'asphalt_02', texSize: 5, flat: 70, hills: 15, mat: 'concrete', seed: 5 });
       addWetness(nterr.material, { amount: 0.75, scale: 0.09, dampness: 0.55 });
       prog(0.4, 'Building Old Town');
-      // sidewalks
-      W.box(-9, 0, -22, 6, 0.15, 124, M.floor, { texSize: 2, cast: false }); W.box(9, 0, -22, 6, 0.15, 124, M.floor, { texSize: 2, cast: false });
-      // row buildings left (x<-12) and right (x>12)
-      const blocks = [[-50, -32, 12], [-26, -12, 10], [-10, 8, 12], [12, 32, 10]];
-      let bi = 0;
-      for (const side of [-1, 1]) {
-        for (const [z0, z1] of [[-80, -58], [-56, -36], [-24, -6], [-2, 18], [22, 38]]) {
-          const cx = side * 22, cz = (z0 + z1) / 2, d = z1 - z0, h = 6.5 + ((bi++ * 37) % 3);
-          const mat = bi % 3 === 0 ? M.plaster : M.brick;
-          building(W, cx, cz, 18, d, h, mat, { roofMat: M.concrete, floorMat: M.floor, doors: { [side < 0 ? 'e' : 'w']: [0.5] }, windows: { [side < 0 ? 'e' : 'w']: [0.2, 0.8] }, parapet: 0.8 });
-          // upper floor windows (decorative glow)
-          for (let k = 0; k < 3; k++) {
-            const wz = z0 + d * (0.2 + k * 0.3), lit = rnd() < 0.35;
-            const win = new THREE.Mesh(new THREE.PlaneGeometry(1.1, 1.3), new THREE.MeshStandardMaterial({ color: 0x111111, emissive: lit ? 0xffb066 : 0x0a0d12, emissiveIntensity: lit ? 2.2 : 1, roughness: 0.2, metalness: 0.5 }));
-            win.position.set(cx - side * 9.02 * 1, 4.5, wz); win.rotation.y = side < 0 ? Math.PI / 2 : -Math.PI / 2; G.scene.add(win);
-          }
-        }
-      }
-      // cross street at z=-46/-30 handled by gaps; end wall north & south
-      W.wall(-40, -84, 40, -84, 4, 0.5, M.brick); W.wall(-40, 40, 40, 40, 4, 0.5, M.brick);
-      // safehouse (north end, across the street)
-      prog(0.55, 'Fortifying the safehouse');
-      building(W, 0, -72, 16, 12, 4, M.plaster, { roofMat: M.concrete, floorMat: M.wood, doors: { s: [0.5] }, windows: { s: [0.15, 0.85], e: [0.5], w: [0.5] } });
-      wallOpen(W, -8, -72, 8, -72, 4, 0.25, M.plaster, [{ at: 0.25, w: 1.3, y0: 0, y1: 2.3 }, { at: 0.75, w: 1.3, y0: 0, y1: 2.3 }]);
-      wallOpen(W, 0, -78, 0, -72, 4, 0.25, M.plaster, []);
-      // cars & props on street
-      await Promise.all([
-        W.prop('covered_car', -4, 20, { rotY: 0.05 }), W.prop('covered_car', 4.5, -12, { rotY: Math.PI + 0.1 }), W.prop('covered_car', -4.2, -40, { rotY: -0.1 }), W.prop('covered_car', 4, -55, { rotY: 3.0 }),
-        W.prop('concrete_road_barrier', -2, -60, { rotY: 0.2 }), W.prop('concrete_road_barrier', 2.5, -61, { rotY: -0.3 }), W.prop('metal_jerrycan_green', 3, -58, { explosive: true }), W.prop('propane_tank', -7, -28, { explosive: true }),
-        W.prop('Barrel_01', 8, 4), W.prop('barrel_03', -8, -18), W.prop('cardboard_box_01', 7, -32), W.prop('wooden_crate_01', -7.5, -50), W.prop('utility_box_01', 7.5, 10),
-        W.prop('old_tyre', -6, 2, { y: 0.3, rotY: 1.2 }), W.prop('medical_box', 3, -75), W.prop('old_military_crate', -4, -76, { mat: 'wood' }),
-      ]);
-      // burnt-out car shells
-      for (const [x, z, r] of [[3.5, 8, 0.2], [-3.8, -26, 2.9]]) vehicleWreck(G, M, x, z, r);
-      // street dressing on the facades and sidewalks (CC0 Poly Haven)
-      const street = [];
-      for (const side of [-1, 1]) for (const [z0, z1] of [[-80, -58], [-56, -36], [-24, -6], [-2, 18], [22, 38]]) {
-        const fx = side * 12.84, ry = side < 0 ? Math.PI / 2 : -Math.PI / 2, d = z1 - z0;
-        street.push(W.prop('rollershutter_door', fx, z0 + d * 0.33, { rotY: ry, y: 0.15, collide: false }));
-        street.push(W.prop('exterior_aircon_unit', fx, z0 + d * 0.66, { rotY: ry, y: 3.3, collide: false }));
-        street.push(W.prop('security_light', fx - side * 0.1, (z0 + z1) / 2, { rotY: ry, y: 2.75, collide: false }));
-        if ((z0 + 80) % 3 === 0) street.push(W.prop('metal_trash_can', side * 11.4, z0 + d * 0.15, { rotY: ry, y: 0.15 }));
-        street.push(W.prop('fire_hydrant', side * 6.6, z0 + d * 0.8, { y: 0.15, rotY: ry, collide: false }));
-      }
-      street.push(W.prop('utility_box_02', 12.2, -44, { rotY: -Math.PI / 2, y: 0.15 }), W.prop('utility_box_02', -12.2, 20, { rotY: Math.PI / 2, y: 0.15 }),
-        W.prop('water_manhole_cover', 1.5, 0, { collide: false, cast: false }), W.prop('water_manhole_cover', -1.2, -48, { collide: false, cast: false }),
-        W.prop('concrete_road_barrier_02', -1, -66, { rotY: 0.1 }), W.prop('plastic_crate_03', 8.5, -20, { y: 0.15 }), W.prop('plastic_crate_03', 8.6, -20, { y: 0.42, rotY: 0.4 }));
-      await Promise.all(street);
-      roadPaint(G, [[0, 38, 0, -80, 0.12, true]], 0xd8d8d0);
-      // spawn-side cover (spawn at 0,32)
-      await Promise.all([W.prop('concrete_road_barrier', -2.5, 26, { rotY: 0.15 }), W.prop('concrete_road_barrier', 3, 22, { rotY: -0.2 }), W.prop('concrete_road_barrier', -3, 4, { rotY: 0.3 }), W.prop('concrete_road_barrier', 2.5, -22, { rotY: -0.1 }), W.prop('wooden_crate_01', 4, 27, { mat: 'wood' })]);
-      sandbagWall(W, M, 0, -3, 3); sandbagWall(W, M, -1, -44, 3.5);
-      wreck(G, M, -3.5, 14, 0.1);
-      G._supplies = [V(7.5, 0, 28), V(-7.5, 0, -34), V(7.5, 0, -62)];
-      // street lamps
-      for (const [x, z] of [[-6.5, 30], [6.5, 10], [-6.5, -10], [6.5, -34], [-6.5, -54]]) {
-        await W.prop('street_lamp_01', x, z, { rotY: x < 0 ? -Math.PI / 2 : Math.PI / 2 });
-        const l = new THREE.PointLight(0xffb36b, 30, 20, 2); l.position.set(x + (x < 0 ? 1.3 : -1.3), 3.7, z); G.scene.add(l);
-      }
-      // safehouse interior light + fire barrel
-      { const l = new THREE.PointLight(0xff9d5c, 6, 10, 2); l.position.set(0, 3, -75); G.scene.add(l); }
-      const fireP = V(-5.5, 0, -64); await W.prop('barrel_03', fireP.x, fireP.z);
-      const fireL = new THREE.PointLight(0xff7a2a, 12, 12, 2); fireL.position.set(fireP.x, 1.6, fireP.z); G.scene.add(fireL);
+      const { fireP, fireL } = await oldTown(G, M, prog);
       prog(0.7, 'Deploying hostiles');
       const E = (x, z, o = {}) => enemy(G, x, z, { zone: 'street', ...o });
       E(-4, 0, { patrol: [[-4, 0], [-4, -20]] }); E(5, -16, { yaw: 0 }); E(-8, -30, { yaw: 0.3 }); E(8, -40, { patrol: [[8, -40], [8, -20]] });
@@ -573,6 +586,337 @@ export const LEVELS = [
               for (const [x, z] of [[-30, -40], [30, -38], [-30, -8], [30, 0], [-30, 20]]) { const e = enemy(G, x, z, { state: 'alert', zone: 'reinf' }); e.investigate = V(0, 0, -30); }
             },
           },
+        ],
+      };
+    },
+  },
+  {
+    id: 'overwatch', enemyWeapon: 'ak47', name: 'OPERATION OVERWATCH', location: 'Al-Qadir Province', time: '05:40 Local', reverb: 'outdoor',
+    loadout: { primary: 'bolt762', secondary: 'm9' },
+    briefing: 'The Jackal slipped away at Dust Devil, but Lt. Hayes followed the Black Tide money to his paymaster, a contractor called Marek. Marek is meeting Jackal\'s men in the same village at dawn. Sgt. Okafor\'s team will hit the compound and take him alive. You are their overwatch: hold the ridge south of the village with a bolt-action rifle, clear the rooftops and keep the squad alive. Past 100 metres your rounds drop and drift with the crosswind.',
+    dogtag: V(-30.5, 0, 2.5),
+    radio: [
+      { at: 0, who: 'OKAFOR', text: 'Ghost, you\'re our eyes. Three lookouts on the rooftops. Drop them and we move.', delay: 3 },
+      { at: 0, who: 'VOSS', text: 'Wind is left to right. Hold a little into it on the long shots.', delay: 10 },
+      { at: 1, who: 'OKAFOR', text: 'Rooftops are clear. Moving to the gate. Watch the street for us.' },
+      { at: 2, who: 'VOSS', text: 'Glint on the compound roof. Sniper. He has Okafor pinned at the gate.' },
+      { at: 3, who: 'OKAFOR', text: 'Sniper down. Ghost, they\'re flanking your ridge. Hold that position!' },
+      { at: 4, who: 'OKAFOR', text: 'We\'re in the compound. Marek is gone. Somebody tipped him off.', delay: 2 },
+      { at: 4, who: 'HAYES', text: 'Ghost, Marek left his phone behind. His last call went to a number inside Vanguard Command.', delay: 10 },
+    ],
+    objectivesPreview: ['Eliminate the rooftop lookouts', 'Cover the squad at the gate', 'Kill the enemy sniper', 'Hold the ridge', 'Regroup with the squad'],
+    intro: ['ACT I — OPERATION OVERWATCH', 'Al-Qadir Province', 'Sgt. "Ghost" Reyes — 1st Vanguard Battalion', 'Day 5, 05:40'],
+    hint: 'Hold <b>RMB</b> to scope and <b>Shift</b> to steady your breath. Past 100 m bullets drop and drift with the wind.',
+    ambience: [['wind', 0.5]],
+    async build(G, prog) {
+      setupEnvironment(G, { hdri: 'kloofendal_48d_partly_cloudy_puresky', sunDir: V(0.85, 0.2, -0.45), sunIntensity: 2.8, sunColor: 0xffb47a, envIntensity: 0.7, fogColor: 0xc9a88a, fogDensity: 0.0042, exposure: 1.05, skyTop: 0x3a5784, skyHorizon: 0xf1b98a, skyGround: 0x8a6f58, clouds: 0.35, cloudColor: 0xffd2b0, skyBright: 1.1, hemi: 0.2, skyColor: 0xffc8a0, groundColor: 0x8a6f58, grade: { tint: 0xfff0e0, saturation: 1.0, contrast: 1.1 } });
+      G.envExposure = 1.05; G.level.tint = 'desert';
+      const M = await mats(); const W = G.world;
+      prog(0.4, 'Building village');
+      await desertVillage(G, M);
+      W.bounds.maxZ = 92;
+      // sniper ridge: rock shelf south of the village, low lip for cover, stairs down the back
+      prog(0.6, 'Climbing the ridge');
+      const ridgeM = M.sandstone.clone(); ridgeM.color.set(0xa08468);
+      W.box(0, 0, 78, 30, 6, 10, ridgeM, { mat: 'concrete', texSize: 4 });
+      W.box(0, 6, 73.35, 24, 0.55, 0.5, ridgeM, { mat: 'concrete', texSize: 2 });
+      for (const [x, z, s] of [[-11, 75, 1.1], [9, 77, 0.9], [-4, 81, 1.3]]) await W.prop('boulder_01', x, z, { y: 6, rotY: x, scale: s, mat: 'concrete' });
+      for (let i = 0; i < 14; i++) W.box(12.5, 0, 83.3 + i * 0.6, 3, 5.6 - i * 0.4, 0.6, ridgeM, { mat: 'concrete', texSize: 2 });
+      G.pickups.add('ammo', V(-2, 6, 79)); G.pickups.add('ammo', V(2, 6, 79.5));
+      prog(0.75, 'Deploying hostiles');
+      // lookouts on the rooftops
+      enemy(G, -25, 14, { y: 3.65, zone: 'lookout', hold: true, yaw: Math.PI });
+      enemy(G, 14, 15, { y: 3.85, zone: 'lookout', hold: true, yaw: Math.PI + 0.3 });
+      enemy(G, 29, 7, { y: 3.45, zone: 'lookout', hold: true, yaw: Math.PI - 0.4 });
+      // gate patrol
+      for (const [x, z, o] of [[-3, 31.5, {}], [3, 32, {}], [-12, 26, { patrol: [[-12, 26], [-24, 26]] }], [10, 24, { yaw: 2.6 }], [-6, 20, {}], [6, 18, { patrol: [[6, 18], [16, 22]] }]]) enemy(G, x, z, { zone: 'patrol1', yaw: Math.PI, ...o });
+      // sniper team on the HVT roof
+      enemy(G, 0, -36, { y: 4.25, zone: 'sniper', hold: true, yaw: Math.PI, hp: G.diff.hp * 0.8 });
+      enemy(G, -5, -37, { y: 4.25, zone: 'sniper', hold: true, yaw: Math.PI + 0.3 });
+      // compound guards (the squad deals with these)
+      for (const [x, z] of [[-5, -30], [6, -32], [-8, -46], [8, -48]]) enemy(G, x, z, { zone: 'compound', yaw: Math.PI });
+      // the squad
+      const route = [[0, 50], [0, 40], [0, 33], [0, 20], [0, -10], [0, -22], [0, -30]];
+      const squad = [ally(G, -4, 60, { name: 'OKAFOR', route, slot: 0 }), ally(G, 4, 60, { route, slot: 1 }), ally(G, -6, 57, { route, slot: 2 }), ally(G, 6, 57, { route, slot: 3 })];
+      const hold = n => squad.forEach(a => { a.holdAt = n; });
+      hold(0);
+      return {
+        spawn: V(0, 6, 76.5), spawnYaw: 0, exposure: 1.05, wind: V(1.5, 0, 0),
+        objectives: [
+          { type: 'kill', text: 'Eliminate the 3 rooftop lookouts', filter: e => e.zone === 'lookout' },
+          { type: 'kill', text: 'Cover the squad: kill the patrol at the gate', filter: e => e.zone === 'patrol1', onStart: () => hold(3), restore: () => hold(3) },
+          { type: 'kill', text: 'Kill the enemy sniper on the compound roof', filter: e => e.zone === 'sniper', onStart: () => hold(3) },
+          {
+            type: 'kill', text: 'Hold the ridge: hostiles flanking your position', filter: e => e.zone === 'ridge',
+            onStart: G => {
+              G.hud.toast('HOSTILES FLANKING THE RIDGE', 3);
+              for (const [x, z] of [[-50, 48], [50, 48], [-40, 56], [42, 58], [-28, 64], [30, 64]]) { const e = enemy(G, x, z, { state: 'combat', zone: 'ridge' }); e.lastSeen = G.player.pos.clone(); e.lastSeenT = G.time; e.awareness = 1; }
+            },
+          },
+          { type: 'reach', text: 'Regroup with the squad at the compound', pos: V(0, 0, -20), radius: 6, onStart: () => hold(7) },
+        ],
+      };
+    },
+  },
+  {
+    id: 'deepfreeze', enemyWeapon: 'm4a1', name: 'OPERATION DEEP FREEZE', location: 'Kola Peninsula', time: '23:10 Local', night: true, reverb: 'outdoor',
+    loadout: { primary: 'mp5', secondary: 'm9', att: { mp5: { optic: 'holo', muzzle: 'suppressor', under: 'none', mag: 'ext' }, m9: { optic: 'iron', muzzle: 'suppressor', under: 'none', mag: 'std' } } },
+    briefing: 'The guidance kits from Iron Harbor were flown north to a Black Tide radar station on the Kola Peninsula. A blizzard is coming in, and it is the only cover you will get. Go in quietly with suppressed weapons. Jam their comms mast, pull the flight logs from the control building, then destroy the radar dish on your way out. If the alarm goes up, the hangar will empty on top of you.',
+    dogtag: V(-27, 0, -42.8),
+    radio: [
+      { at: 0, who: 'VOSS', text: 'Ghost, Voss. The storm is covering you. Black Tide runs this station, so keep it quiet.', delay: 3 },
+      { at: 1, who: 'VOSS', text: 'You\'re through the fence. Put the jammer on the comms mast and they can\'t call for help.' },
+      { at: 2, who: 'VOSS', text: 'Jammer is live. The flight logs are in the control building. Breach and clear.' },
+      { at: 4, who: 'HAYES', text: 'Pull everything off that terminal. I want every flight Rask has made.' },
+      { at: 5, who: 'HAYES', text: 'Ghost, these flights all land on a ship in the North Sea. It\'s called the Black Tide.', delay: 1 },
+      { at: 5, who: 'VOSS', text: 'Put charges on the dish. Then we vanish.', delay: 9 },
+      { at: 6, who: 'VOSS', text: 'Charges set. Twenty seconds. Get back to the treeline.' },
+    ],
+    objectivesPreview: ['Slip through the perimeter fence', 'Jam the comms mast', 'Breach the control building', 'Download the flight logs', 'Destroy the radar dish', 'Exfil to the treeline'],
+    intro: ['ACT II — OPERATION DEEP FREEZE', 'Black Tide Radar Station, Kola Peninsula', 'Sgt. "Ghost" Reyes — 1st Vanguard Battalion', 'Day 7, 23:10'],
+    hint: 'Stay quiet: your weapons are suppressed. Night vision: <b>N</b>. If an enemy raises the alarm, reinforcements pour out of the hangar.',
+    ambience: [['wind', 0.55]],
+    async build(G, prog) {
+      setupEnvironment(G, { hdri: 'qwantani_night_puresky', night: true, sunDir: V(-0.3, 0.6, -0.5), sunIntensity: 0.55, sunColor: 0xb0c4ff, envIntensity: 0.55, vmEnv: 1.6, fogColor: 0x1d2635, fogDensity: 0.024, exposure: 1.45, hemi: 0.14, skyColor: 0x5a6c90, groundColor: 0x7d8a9a, shadowExtent: 45, grade: { tint: 0xdde8ff, saturation: 0.7, contrast: 1.1, vignette: 0.45 } });
+      G.envExposure = 1.45; G.level.tint = 'urban';
+      const M = await mats(); const W = G.world;
+      W.bounds = { minX: -60, maxX: 60, minZ: -62, maxZ: 70 };
+      await terrain(G, { tex: 'brushed_concrete', texSize: 6, flat: 75, hills: 45, mat: 'dirt', seed: 13, color: 0xeef3fa, rough: 0.85 });
+      prog(0.4, 'Building the station');
+      chainFence(G, [[-45, 40, -22, 40], [-18, 40, 45, 40], [45, 40, 45, -55], [-45, -55, 45, -55], [-45, -55, -45, 40]], { collide: true });
+      const B = (x, z, w, d, h, mat, o) => building(W, x, z, w, d, h, mat, { roofMat: M.concrete, floorMat: M.floor, ...o });
+      B(-25, 10, 14, 8, 3.2, M.corr, { doors: { s: [0.5], e: [0.5] }, windows: { n: [0.3, 0.7], w: [0.5] }, parapet: 0 });
+      B(15, -5, 10, 8, 3.2, M.concrete, { doors: { s: [0.5] }, windows: { e: [0.5], w: [0.5], n: [0.5] } });
+      B(-20, -35, 20, 14, 6, M.corr, { roofMat: M.rust, doors: { e: [0.5], s: [0.3, 0.7] }, windows: {}, parapet: 0 });
+      // radar dome
+      W.box(25, 0, -40, 13, 2, 13, M.concrete, { texSize: 3 });
+      const dome = new THREE.Mesh(new THREE.SphereGeometry(6.2, 40, 20, 0, Math.PI * 2, 0, Math.PI / 2 + 0.35), new THREE.MeshStandardMaterial({ color: 0xe6eaee, roughness: 0.45 }));
+      dome.position.set(25, 3.6, -40); dome.castShadow = dome.receiveShadow = true; G.scene.add(dome);
+      W.addCollider(V(19, 2, -46), V(31, 9.5, -34), 'metal');
+      // comms mast with a blinking beacon
+      W.box(-5, 0, 20, 1.6, 0.4, 1.6, M.concrete);
+      for (const [dx, dz] of [[-0.55, -0.55], [0.55, -0.55], [-0.55, 0.55], [0.55, 0.55]]) W.box(-5 + dx, 0.4, 20 + dz, 0.1, 22, 0.1, M.darkMetal, { collide: false });
+      for (let y = 2; y < 22; y += 2.5) W.box(-5, y, 20, 1.2, 0.06, 1.2, M.darkMetal, { collide: false });
+      W.addCollider(V(-5.8, 0, 19.2), V(-4.2, 22, 20.8), 'metal');
+      const beacon = new THREE.Mesh(new THREE.SphereGeometry(0.22), new THREE.MeshBasicMaterial({ color: 0xff2a1a })); beacon.position.set(-5, 22.6, 20); G.scene.add(beacon);
+      // cover & dressing
+      for (const [x, z, r, t] of [[-32, -6, 0.4, true], [6, 12, -0.5, false], [30, 18, 1.4, true], [-2, -28, 0.2, false]]) wreck(G, M, x, z, r, t);
+      sandbagWall(W, M, -20, 34, 3); sandbagWall(W, M, 5, -14, 3.5); sandbagWall(W, M, 20, -24, 3);
+      await Promise.all([
+        W.prop('old_military_crate', -12, 28, { mat: 'wood' }), W.prop('wooden_crate_01', -11, 29.2, { mat: 'wood', rotY: 0.5 }), W.prop('Barrel_01', 8, 6), W.prop('barrel_03', 8.8, 6.6),
+        W.prop('portable_generator', 10, -1, { rotY: 1.2 }), W.prop('propane_tank', -14, -26, { explosive: true }), W.prop('propane_tank', 30, -28, { explosive: true }),
+        W.prop('covered_car', 34, 0, { rotY: 1.5 }), W.prop('utility_box_01', -4, 17), W.prop('wooden_military_crate', -28, -20, { mat: 'wood' }), W.prop('ammo_box', -27.4, -20.2, { y: 0.45 }),
+        W.prop('security_light', 15, -0.9, { y: 2.8, collide: false }), W.prop('security_light', -25, 14.1, { y: 2.8, collide: false }),
+      ]);
+      for (const [x, z] of [[-5, 22], [15, 0], [-20, -27], [25, -32], [-25, 15]]) { const l = new THREE.PointLight(0xcfe0ff, 14, 16, 2); l.position.set(x, 3.4, z); G.scene.add(l); }
+      // treeline beyond the fence (spawn side)
+      await scatter(G, 'dry_branches_medium_01', spots(G, 30, { keep: [[-20, 60, 6]], clear: 1.0, x0: -58, x1: 58, z0: 44, z1: 68, scale: [1, 2] }), { cast: false });
+      await scatter(G, 'namaqualand_boulder_02', spots(G, 10, { keep: [[-20, 60, 6], [-20, 42, 4]], clear: 2, x0: -58, x1: 58, z0: 44, z1: 68, scale: [0.8, 1.3] }), { collide: true, colRadius: 'auto', colHeight: 'auto', sink: 0.05 });
+      table(G, M, 15, -7.4, 1.6, 0.8); laptop(G, 15, 0.79, -7.4, 0);
+      G._supplies = [V(-12, 0, 30), V(-27, 0, -22)];
+      prog(0.7, 'Deploying hostiles');
+      const E = (x, z, o = {}) => enemy(G, x, z, { zone: 'base', ...o });
+      E(-30, 30, { patrol: [[-36, 30], [10, 30]] }); E(-3, 23, { yaw: 0.8 }); E(-8, 16, { patrol: [[-8, 16], [-8, 2], [6, 2]] });
+      E(-25, 4, { patrol: [[-32, 4], [-16, 4]] }); E(-22, 12, { hold: true, yaw: 2 });
+      E(-24, -32, { yaw: 1 }); E(-16, -37, {}); E(-20, -25, { patrol: [[-20, -25], [2, -25], [2, -45]] });
+      E(22, -31, { yaw: 0.3 }); E(30, -30, { patrol: [[32, -30], [36, -50], [14, -50]] }); E(35, 15, { patrol: [[36, 15], [36, -15]] });
+      for (const [x, z, y] of [[13, -6, 0.5], [17.5, -3.5, -0.4], [12.5, -8, 0]]) enemy(G, x, z, { zone: 'control', yaw: y });
+      let alarm = false, jammed = false, blown = false, blowT = -1, breachDoor = null;
+      return {
+        spawn: V(-20, 0, 62), spawnYaw: 0, exposure: 1.45,
+        weather: { type: 'snow', intensity: 1, wind: V(3.5, 0, 1.2) },
+        update: (G, dt) => {
+          beacon.visible = (G.time % 1.4) < 0.25;
+          const quietBreach = G.objIdx === 3 && G.objectives[3].t < 8; // a fast, clean breach doesn't raise the alarm
+          if (!alarm && G.enemies.list.some(e => e.alive && !e.friendly && !e.hostage && e.state === 'combat' && !(quietBreach && e.zone === 'control'))) {
+            alarm = true; G.hud.toast('ALARM — THE BASE IS ON ALERT', 3); G.radio('VOSS', 'They\'ve spotted you. Go loud!');
+            for (let i = 0; i < 4; i++) setTimeout(() => audio.play('beep', { vol: 0.35, rate: 0.6 }), i * 500);
+            const n = jammed ? 3 : 6;
+            for (let i = 0; i < n; i++) { const e = enemy(G, -20 + (i % 3) * 3, -33 + ((i / 3) | 0) * 3, { state: 'alert', zone: 'qrf' }); e.investigate = G.player.pos.clone(); }
+          }
+          if (blowT > 0) { blowT -= dt; if (blowT <= 0 && !blown) { blown = true; dome.visible = false; G.explode(V(25, 4, -40), 'frag', true, 3); setTimeout(() => G.explode(V(23, 2.5, -37), 'frag', true, 1.5), 500); } }
+        },
+        objectives: [
+          { type: 'reach', text: 'Slip through the gap in the perimeter fence', pos: V(-20, 0, 40), radius: 3 },
+          { type: 'interact', text: 'Plant the jammer on the comms mast', pos: V(-5, 0, 21.6), radius: 1.6, label: 'Hold <b>[F]</b> to plant the jammer', time: 3, onDone: G => { jammed = true; G.hud.toast('COMMS JAMMED', 2); } },
+          { type: 'custom', text: 'Breach the control building', pos: V(15, 0, 0.2), check: () => breachDoor?.done, onStart: G => { breachDoor = G.addBreach({ x: 15, z: -1, horiz: true, zone: 'control', out: [0, 1.2] }); } },
+          { type: 'kill', text: 'Clear the control room', filter: e => e.zone === 'control' },
+          { type: 'interact', text: 'Download the flight logs', pos: V(15, 0, -7.4), radius: 1.6, label: 'Hold <b>[F]</b> to download the flight logs', time: 4 },
+          { type: 'interact', text: 'Plant charges on the radar dome', pos: V(25, 0, -32.4), radius: 2, label: 'Hold <b>[F]</b> to plant charges', time: 3, onDone: () => { blowT = 20; } },
+          {
+            type: 'reach', text: 'Exfil to the treeline before the charges blow', pos: V(-20, 0, 58), radius: 6, cond: () => blown,
+            onStart: G => { if (blowT < 0) blowT = 20; if (!alarm) G.hud.toast('UNDETECTED — THEY NEVER KNEW YOU WERE THERE', 3.5); },
+          },
+        ],
+      };
+    },
+  },
+  {
+    id: 'angel', enemyWeapon: 'ak47', name: 'ANGEL OF DEATH', location: 'Al-Qadir Province', time: '01:30 Local', night: true, reverb: 'outdoor',
+    briefing: 'Marek\'s phone led Okafor\'s team back to Al-Qadir to recover the Black Tide servers, and Jackal\'s militia has them surrounded. You are aboard the AC-130 gunship "Warhammer", 9,000 feet above the village. Clear a path for the squad from the south wall to the extraction LZ. Your squad wears IR strobes: they flash white on the thermal camera. Hit them three times and the mission is over.',
+    dogtag: null,
+    radio: [
+      { at: 0, who: 'OVERLORD', text: 'Overlord to Warhammer. Ground team is pinned at the south wall. You are cleared hot.', delay: 3 },
+      { at: 0, who: 'OKAFOR', text: 'Ghost, it\'s Okafor! We need that gate cleared, now!', delay: 10 },
+      { at: 1, who: 'OKAFOR', text: 'Gate\'s clear. Pushing into the village. Watch for our strobes.' },
+      { at: 2, who: 'OVERLORD', text: 'Vehicles closing fast from the east and west. Technicals. Take them out.' },
+      { at: 3, who: 'OKAFOR', text: 'Compound ahead. Lots of heat in there. Light it up!' },
+      { at: 4, who: 'OKAFOR', text: 'We have the servers. Moving to the LZ. Keep them off us.' },
+      { at: 4, who: 'OVERLORD', text: 'Good effect on target. The bird is two minutes out.', delay: 9 },
+    ],
+    objectivesPreview: ['Clear the south gate', 'Cover the squad through the village', 'Destroy the technicals', 'Clear the compound', 'Cover the squad to the LZ'],
+    intro: ['ACT II — ANGEL OF DEATH', 'AC-130 "Warhammer", over Al-Qadir', 'Sgt. "Ghost" Reyes — Fire Control Officer', 'Day 8, 01:30'],
+    hint: 'Aim: <b>Mouse/Arrows</b> &nbsp; Fire: <b>Click</b> &nbsp; Guns: <b>1</b> 25mm · <b>2</b> 40mm · <b>3</b> 105mm (or wheel). Flashing white strobes are your squad.',
+    ambience: [['wind', 0.15]],
+    async build(G, prog) {
+      setupEnvironment(G, { hdri: 'qwantani_night_puresky', night: true, sunDir: V(0.3, 0.7, -0.6), sunIntensity: 0.5, sunColor: 0x9db4ff, envIntensity: 0.5, vmEnv: 1.6, fogColor: 0x0b0f18, fogDensity: 0.0018, exposure: 1.6, hemi: 0.1, skyColor: 0x3b4a70, groundColor: 0x222222, shadowExtent: 90, grade: { saturation: 0.6, contrast: 1.1 } });
+      G.envExposure = 1.6; G.level.tint = 'desert';
+      const M = await mats();
+      prog(0.4, 'Building village');
+      await desertVillage(G, M);
+      prog(0.7, 'Deploying hostiles');
+      const route = [[0, 50], [0, 40], [0, 33], [0, 20], [-2, 4], [0, -12], [0, -22], [0, -30], [8, -56], [0, -72]];
+      const squad = [ally(G, -3, 64, { name: 'OKAFOR', route, slot: 0, speed: 2.6 }), ally(G, 3, 64, { route, slot: 1, speed: 2.6 }), ally(G, -5, 61, { route, slot: 2, speed: 2.6 }), ally(G, 5, 61, { route, slot: 3, speed: 2.6 })];
+      const hold = n => squad.forEach(a => { a.holdAt = n; });
+      hold(2);
+      const wave = (zone, pts) => pts.forEach(([x, z, o]) => { const e = enemy(G, x, z, { zone, state: 'combat', ...(o || {}) }); e.lastSeen = squad[0].pos.clone(); e.lastSeenT = G.time; e.awareness = 1; });
+      wave('w1', [[-6, 31], [6, 31.5], [-16, 34], [14, 35], [-24, 28], [22, 27], [-3, 24], [4, 22], [-30, 33], [28, 34]]);
+      // technicals
+      const techs = [];
+      const tmat = new THREE.MeshStandardMaterial({ color: 0x8a7a60, roughness: 0.8, emissive: 0xffffff, emissiveIntensity: 0.9 });
+      const dark = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.9 });
+      const technical = (path) => {
+        const g = new THREE.Group();
+        const body = new THREE.Mesh(new THREE.BoxGeometry(1.9, 0.9, 4.6), tmat); body.position.y = 0.95; g.add(body);
+        const cab = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.9, 1.6), tmat); cab.position.set(0, 1.8, -1.0); g.add(cab);
+        const gun = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 1.4, 6), dark); gun.rotation.x = Math.PI / 2; gun.position.set(0, 2.3, 1.0); g.add(gun);
+        for (const [x, z] of [[-0.95, -1.5], [0.95, -1.5], [-0.95, 1.5], [0.95, 1.5]]) { const w = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.42, 0.3, 12), dark); w.rotation.z = Math.PI / 2; w.position.set(x, 0.42, z); g.add(w); }
+        g.traverse(o => { if (o.isMesh) o.castShadow = true; });
+        const p = path.map(q => V(q[0], 0, q[1])); g.position.copy(p[0]); G.scene.add(g);
+        const t = { g, path: p, i: 1, alive: true, hp: 2, cd: 2 + Math.random() * 2 };
+        techs.push(t); return t;
+      };
+      const smoke = greenSmoke(G, V(0, 0, -72));
+      return {
+        spawn: V(0, 0, 70), spawnYaw: 0, exposure: 1.6,
+        gunship: { center: [0, -10], radius: 230, altitude: 300 },
+        deathText: 'The ground team was overrun.',
+        onExplosion: (pos) => {
+          for (const t of techs) if (t.alive && t.g.position.distanceTo(pos) < 4.5) {
+            t.hp--;
+            if (t.hp <= 0) {
+              t.alive = false; t.g.traverse(o => { if (o.isMesh) o.material = dark; });
+              const at = t.g.position.clone().add(V(0, 1, 0)); setTimeout(() => G.explode(at, 'frag', true, 1.2), 50);
+              G.hud.pickupMsg('TECHNICAL DESTROYED');
+            }
+          }
+        },
+        update: (G, dt) => {
+          if (G.objIdx >= 4) smoke(dt);
+          for (const t of techs) {
+            if (!t.alive) { if (Math.random() < dt * 12) G.effects.add.spawn(t.g.position.clone().add(V((Math.random() - 0.5) * 1.5, 1.5, (Math.random() - 0.5) * 3)), V(0, 2, 0), { life: 0.6, size: 0.8, grow: -0.6, color: [1, 0.55, 0.2], alpha: 0.9 }); continue; }
+            const wp = t.path[t.i];
+            if (wp) {
+              const d = wp.clone().sub(t.g.position); d.y = 0;
+              if (d.length() < 1) t.i++;
+              else { d.normalize(); t.g.position.addScaledVector(d, 7 * dt); t.g.rotation.y = Math.atan2(d.x, d.z); }
+            } else {
+              t.cd -= dt;
+              if (t.cd <= 0) {
+                t.cd = 0.12; t.burst = (t.burst || 0) + 1; if (t.burst > 8) { t.burst = 0; t.cd = 1.8; }
+                const from = t.g.position.clone().add(V(0, 2.3, 0)), a = squad[(Math.random() * squad.length) | 0];
+                const to = a.pos.clone().add(V((Math.random() - 0.5) * 6, 1, (Math.random() - 0.5) * 6));
+                G.effects.tracer(from, to); audio.shot('lmg', from, false);
+              }
+            }
+          }
+        },
+        objectives: [
+          { type: 'kill', text: 'Clear the hostiles at the south gate', filter: e => e.zone === 'w1' },
+          {
+            type: 'kill', text: 'Cover the squad as they push into the village', filter: e => e.zone === 'w2',
+            onStart: () => { hold(5); wave('w2', [[-14, 10], [12, 12], [-22, 2], [20, 0], [-8, -6], [8, -2], [-26, -12], [24, -8], [-12, -16], [14, -14], [0, 6], [-30, 12]]); },
+          },
+          {
+            type: 'custom', text: 'Destroy the 3 technicals', waypoint: false,
+            onStart: () => { technical([[90, -2], [46, -2]]); technical([[-90, -18], [-48, -18]]); technical([[80, -75], [30, -64], [22, -62]]); },
+            check: G => { const left = techs.filter(t => t.alive).length; G.hud.setObjectiveCount(`${left} remaining`); return techs.length && left === 0; },
+          },
+          { type: 'kill', text: 'Clear the compound', filter: e => e.zone === 'w3', onStart: () => { hold(7); wave('w3', [[-8, -30], [8, -30], [-12, -42], [10, -44], [0, -50], [-6, -56], [6, -60], [-12, -28], [12, -36], [3, -38]]); } },
+          { type: 'custom', text: 'Cover the squad to the LZ', waypoint: false, onStart: () => { hold(10); wave('w4', [[-40, -70], [40, -70], [-30, -80], [30, -80], [-50, -55], [50, -55]]); }, check: () => squad[0].routeIdx >= 10 || squad[0].pos.distanceTo(V(0, 0, -72)) < 6 },
+        ],
+      };
+    },
+  },
+  {
+    id: 'burnnotice', enemyWeapon: 'mp5', name: 'BURN NOTICE', location: 'Old Town, Zagoria', time: '05:05 Local', reverb: 'urban',
+    loadout: { primary: 'mp5', secondary: 'm9' },
+    briefing: 'Hayes went to Vanguard Command with what she knew about the mole. Six hours later your safehouse in Old Town is on fire and a Black Tide kill team is waiting outside. Your rifle is empty and the building is coming down. Grab what you can, breach the front door and fight your way down the street to Okafor\'s car. Trust nobody wearing a Vanguard patch.',
+    dogtag: V(-7.5, 0, -50.6),
+    radio: [
+      { at: 0, who: 'HAYES', text: 'Ghost! Wake up! They firebombed the safehouse! Get out of there!', delay: 1.5 },
+      { at: 0, who: 'OKAFOR', text: 'Ghost, Okafor. I\'m at the end of the street with a car. Grab a weapon and get out!', delay: 8 },
+      { at: 1, who: 'OKAFOR', text: 'Kill team at the door! Black Tide contractors!' },
+      { at: 2, who: 'OKAFOR', text: 'Come on, Ghost! I\'m at the car. Move!' },
+      { at: 2, who: 'KESSLER', text: 'Sergeant Reyes. As of oh-five-hundred, you are disavowed. Stand down and wait for pickup.', delay: 14 },
+      { at: 2, who: 'REYES', text: 'Kessler. It was you. You sold us to Rask.', delay: 24 },
+    ],
+    objectivesPreview: ['Escape the burning safehouse', 'Take out the kill team', 'Fight down the street to Okafor'],
+    intro: ['ACT III — BURN NOTICE', 'Old Town, Zagoria', 'Sgt. "Ghost" Reyes — Disavowed', 'Day 11, 05:05'],
+    hint: 'Your rifle is empty. Grab the shotgun, then hold <b>[F]</b> at the front door to breach. Fallen enemies drop weapons and ammo.',
+    ambience: [['wind', 0.2]],
+    async build(G, prog) {
+      setupEnvironment(G, { hdri: 'kloofendal_48d_partly_cloudy_puresky', sunDir: V(0.6, 0.25, -0.4), sunIntensity: 0.9, sunColor: 0xc8d4e8, envIntensity: 0.45, fogColor: 0x4a5260, fogDensity: 0.014, exposure: 1.15, skyTop: 0x3a4250, skyHorizon: 0x6a7280, skyGround: 0x2a2c30, clouds: 0.95, cloudColor: 0x6a707a, skyBright: 0.6, hemi: 0.18, skyColor: 0x8a94a8, groundColor: 0x202224, shadowExtent: 45, grade: { tint: 0xe4ecf8, saturation: 0.72, contrast: 1.12, vignette: 0.45 } });
+      G.envExposure = 1.15; G.level.tint = 'urban';
+      const M = await mats(); const W = G.world;
+      W.bounds = { minX: -40, maxX: 40, minZ: -84, maxZ: 40 };
+      const ter = await terrain(G, { tex: 'asphalt_02', texSize: 5, flat: 70, hills: 15, mat: 'concrete', seed: 5 });
+      addWetness(ter.material, { amount: 0.95, scale: 0.09, dampness: 0.8 });
+      prog(0.4, 'Building Old Town');
+      const { fireP, fireL } = await oldTown(G, M, prog);
+      // fire inside the safehouse
+      const fires = [V(-5, 0, -76), V(5.5, 0, -74.5), V(-6, 0, -68.5), V(5.8, 0, -69.5), V(-1.5, 0, -77.2)];
+      const fl = fires.map(p => { const l = new THREE.PointLight(0xff6a20, 9, 9, 2); l.position.copy(p).add(V(0, 1.2, 0)); G.scene.add(l); return l; });
+      G.pickups.add('weapon', V(-2.5, 0, -69), { id: 'm870', ammo: 6, reserve: 18 });
+      G.pickups.add('ammo', V(2.6, 0, -70));
+      prog(0.7, 'Deploying hostiles');
+      for (const [x, z] of [[-4, -60], [4, -58.5], [-7, -55.5], [6.5, -62]]) enemy(G, x, z, { zone: 'ambush', yaw: 0, state: 'alert' });
+      for (const [x, z, o] of [[-5, -46, {}], [5, -40, {}], [-8, -30, {}], [6, -20, {}], [-4, -8, {}], [5, 2, {}], [-6, 14, {}], [4, 24, {}], [-9, -36, { hp: G.diff.hp * 2 }], [8, -4, {}]]) enemy(G, x, z, { zone: 'street', yaw: 0, ...o });
+      const okafor = ally(G, 2, 36, { name: 'OKAFOR', slot: 0 }); okafor.stayPut = true; okafor.yaw = Math.PI;
+      let door = null, smokeT = 0;
+      return {
+        spawn: V(0, 0, -75.5), spawnYaw: Math.PI, exposure: 1.15, deathText: 'You were killed in action.',
+        weather: { type: 'rain', intensity: 1, wind: V(1.5, 0, 0.6), lightning: true },
+        update: (G, dt) => {
+          fireL.intensity = 10 + Math.sin(G.time * 13) * 2;
+          const burning = !door?.done || G.objIdx < 1;
+          fl.forEach((l, i) => { l.intensity = 8 + Math.sin(G.time * (11 + i)) * 2.5 + Math.random(); });
+          smokeT += dt;
+          while (smokeT > 0.05) {
+            smokeT -= 0.05;
+            const p = fires[(Math.random() * fires.length) | 0];
+            G.effects.add.spawn(p.clone().add(V((Math.random() - 0.5) * 0.8, 0.3, (Math.random() - 0.5) * 0.8)), V(0, 1.6 + Math.random(), 0), { life: 0.7, size: 0.7, grow: -0.6, color: [1, 0.5, 0.15], alpha: 0.85 });
+            if (Math.random() < 0.4) G.effects.smoke.spawn(p.clone().add(V(0, 1.5, 0)), V((Math.random() - 0.5) * 0.4, 0.9, (Math.random() - 0.5) * 0.4), { life: 4, size: 0.9, grow: 1.4, color: [0.12, 0.11, 0.1], alpha: 0.55, drag: 0.5, spin: 0.3, fade: 2 });
+          }
+          const P = G.player;
+          if (P.alive && P.pos.z < -66.2 && P.pos.z > -78 && Math.abs(P.pos.x) < 8) {
+            for (const f of fires) if (Math.hypot(P.pos.x - f.x, P.pos.z - f.z) < 1.3) P.damage(40 * dt, f);
+            const o = G.objectives[G.objIdx];
+            if (burning && o && G.objIdx === 0 && o.t > 30) P.damage(6 * dt, P.pos.clone().add(V(0, 0, 1)));
+          }
+        },
+        objectives: [
+          {
+            type: 'custom', text: 'Get out! Grab the shotgun and breach the front door', pos: V(0, 0, -67.2),
+            onStart: G => {
+              const P = G.player, w = P.weapons[0]; if (w) { w.ammo = 0; w.reserve = 0; }
+              P.pendingSwitch = 1; P.switchT = 0.5;
+              door = G.addBreach({ x: 0, z: -66, horiz: true, zone: 'ambush', out: [0, -1.2] });
+            },
+            check: (G, dt, o) => { const r = Math.max(0, 30 - o.t); G.hud.setObjectiveCount(r > 0 ? `Smoke: ${Math.ceil(r)}s` : 'CHOKING'); return door?.done; },
+          },
+          { type: 'kill', text: 'Take out the kill team', filter: e => e.zone === 'ambush' },
+          { type: 'reach', text: 'Fight down the street to Okafor\'s car', pos: V(0, 0, 34), radius: 4 },
         ],
       };
     },

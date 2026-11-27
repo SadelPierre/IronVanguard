@@ -138,7 +138,7 @@ export class Enemy {
     this.grenadeCd = 10 + Math.random() * 15; this.stun = 0;
     this.mag = 30; this.reloadT = 0; this.role = 'rifle'; this.flankT = 0; this.suppressT = 0;
     this.friendly = !!opts.friendly; this.hostage = !!opts.hostage; this.follow = false;
-    this.zone = opts.zone || null; this.tag = opts.tag || null;
+    this.zone = opts.zone || null; this.tag = opts.tag || null; this.name = opts.name || null; this.route = opts.route || null; this.routeIdx = 0;
     this.aimPitch = 0; this.aimBlend = 0; this.deathT = 0;
     this.speedMul = opts.speed || 1;
     this.holdPosition = !!opts.hold;
@@ -352,6 +352,7 @@ export class Enemy {
     this.groundY = 0;
 
     if (this.hostage) { this.updateHostage(dt); return; }
+    if (this.friendly) { this.updateAlly(dt); return; }
 
     // perception (throttled)
     this.thinkT -= dt;
@@ -414,6 +415,7 @@ export class Enemy {
         if (this.grenadeCd <= 0 && since > 2 && since < 8 && this.lastSeen && this.pos.distanceTo(this.lastSeen) < 25 && this.pos.distanceTo(this.lastSeen) > 8) {
           this.grenadeCd = 18 + Math.random() * 15; this.throwGrenade(this.lastSeen);
         }
+        if (this.allyTarget) { this.faceTo(this.allyTarget.pos, dt, 8); wantAim = 1; this.suppressT -= dt; if (this.suppressT <= 0 && this.reloadT <= 0) { this.suppressT = 0.9 + Math.random() * 1.4; this.suppress(this.allyTarget.pos.clone().add(V(0, -0.4, 0))); } }
         // suppressive fire at the player's last known position (keeps them pinned behind cover)
         if (this.lastSeen && since < 5 && since > 0.6 && this.role !== 'flank' && this.reloadT <= 0 && this.pos.distanceTo(this.lastSeen) < 45) {
           this.suppressT -= dt;
@@ -475,6 +477,14 @@ export class Enemy {
       can = (G.world.lineOfSight(eye, pEye) || G.world.lineOfSight(eye, chest)) && !G.effects.smokeBlocks(eye, pEye);
     }
     this.seesPlayer = can && this.awareness >= 1;
+    // otherwise look for squadmates to fight
+    this.allyTarget = null;
+    if (!can && this.mgr.allies?.length) {
+      for (const a of this.mgr.allies) {
+        if (a.pos.distanceTo(this.pos) > 45) continue;
+        if (G.world.lineOfSight(eye, a.pos.clone().add(V(0, 1.4, 0)))) { this.allyTarget = a; if (this.state !== 'combat') { this.state = 'combat'; this.awareness = 1; this.react = D.react; } break; }
+      }
+    }
     if (can) {
       const rate = D.awareness * (1.6 - dist / range) * (P.crouch ? 0.6 : 1) * (P.sprint ? 1.4 : 1) * (this.state === 'alert' ? 2.5 : 1) * (cone > 0.7 ? 1.4 : 0.7);
       this.awareness = Math.min(1, this.awareness + rate * dt * 1.4);
@@ -586,6 +596,67 @@ export class Enemy {
     if (best) this.coverTarget = best.clone();
   }
 
+  // ---------------- squadmate AI (plot armour: they cannot die, but they fight for real) ----------------
+  updateAlly(dt) {
+    const G = this.G, P = G.player; let speed = 0, dir = null;
+    this.thinkT -= dt;
+    if (this.thinkT <= 0) {
+      this.thinkT = 0.3 + Math.random() * 0.2;
+      // nearest hostile we can see
+      let best = null, bd = this.engageRange || 55;
+      const eye = this.pos.clone().add(V(0, 1.6, 0));
+      for (const e of this.mgr.list) {
+        if (!e.alive || e.friendly || e.hostage) continue;
+        const d = e.pos.distanceTo(this.pos); if (d > bd) continue;
+        if (G.world.lineOfSight(eye, e.pos.clone().add(V(0, 1.3, 0))) && !G.effects.smokeBlocks(eye, e.pos)) { bd = d; best = e; }
+      }
+      this.target = best;
+    }
+    const t = this.target && this.target.alive ? this.target : null;
+    if (t) {
+      this.faceTo(t.pos, dt, 8); this.aimBlend += (1 - this.aimBlend) * Math.min(1, dt * 6);
+      this.aimPitch = Math.atan2(t.pos.y + 1.2 - (this.pos.y + 1.45), Math.hypot(t.pos.x - this.pos.x, t.pos.z - this.pos.z));
+      this.fireCd -= dt;
+      if (this.fireCd <= 0) {
+        if (this.burst <= 0) this.burst = 3 + ((Math.random() * 3) | 0);
+        this.burst--; this.fireCd = this.burst > 0 ? 0.11 : 0.6 + Math.random() * 0.9;
+        const m = this.muzzleWorld(), aim = t.pos.clone().add(V((Math.random() - 0.5) * 0.6, 1.1 + Math.random() * 0.5, (Math.random() - 0.5) * 0.6));
+        G.effects.muzzleWorld(m, aim.clone().sub(m).normalize(), 0.8); audio.shot(this.allySound || 'ar', m, false);
+        if (Math.random() < 0.35) G.effects.tracer(m, aim);
+        if (Math.random() < (this.accuracy ?? 0.22)) {
+          const d = aim.clone().sub(m).normalize();
+          G.effects.blood(aim, d, 1);
+          if (t.takeDamage(28 + Math.random() * 14, d, { point: aim, force: 3.5 })) { G.onEnemyKilled?.(t); if (Math.random() < 0.5) this.callout('kill'); }
+        }
+        G.alertEnemies(this.pos, 35, this);
+      }
+    } else this.aimBlend += (0.25 - this.aimBlend) * Math.min(1, dt * 3);
+    // movement: scripted route, or stay near the player
+    if (this.route && !this.holdRoute && this.routeIdx < (this.holdAt ?? Infinity)) {
+      const wp = this.route[this.routeIdx];
+      if (wp) {
+        const so = [[0, 0], [1.8, 1], [-1.8, 1], [0, 2.2], [2.4, 2.6], [-2.4, 2.6]][(this.squadSlot || 0) % 6];
+        const w = V(wp[0] + so[0], 0, wp[1] + so[1]);
+        if (this.pos.distanceTo(w) < 1.2) { this.routeIdx++; this.onWaypoint?.(this.routeIdx); }
+        else if (!(t && this.stopToFight)) { dir = this.followPath(w, dt); speed = this.routeSpeed || 2.4; }
+      }
+    } else if (this.route) { /* holding position */ } else if (!this.stayPut) {
+      const side = (this.squadSlot || 0) % 2 ? 1 : -1;
+      const back = V(-Math.sin(P.yaw), 0, -Math.cos(P.yaw)).multiplyScalar(-2.5 - (this.squadSlot || 0) * 1.2);
+      const goal = P.pos.clone().add(back).add(V(Math.cos(P.yaw) * side * 2.2, 0, -Math.sin(P.yaw) * side * 2.2));
+      const d = this.pos.distanceTo(goal);
+      if (d > 2.5) { dir = d > 6 ? this.followPath(goal, dt) : this.steer(goal); speed = d > 10 ? 5 : 3; }
+    }
+    if (dir) { this.vel.x += (dir.x * speed - this.vel.x) * Math.min(1, dt * 8); this.vel.z += (dir.z * speed - this.vel.z) * Math.min(1, dt * 8); }
+    else { this.vel.x *= 0.8; this.vel.z *= 0.8; }
+    this.pos.x += this.vel.x * dt; this.pos.z += this.vel.z * dt;
+    const res = G.world.collideCylinder(this.pos, 0.32, 1.7, this.vel, 0.4); this.pos.y = res.groundY; this.groundY = res.groundY;
+    if (dir && !t) this.faceTo(this.pos.clone().add(dir), dt, 6);
+    this.setAnim(dt, Math.hypot(this.vel.x, this.vel.z));
+    this.syncModel(dt);
+  }
+  callout(kind) { const L = { kill: ['Tango down!', 'Got him!', 'Target down.'], move: ['Moving up!', 'On me!'] }[kind]; if (L && this.name) this.G.radio(this.name, L[(Math.random() * L.length) | 0]); }
+
   updateHostage(dt) {
     const G = this.G, P = G.player;
     let speed = 0, dir = null;
@@ -622,25 +693,25 @@ export class EnemyManager {
     this.weaponSound = { ak47: 'ak', m4a1: 'ar', mp5: 'smg', m249: 'lmg' }[weaponId] || 'ak';
     this.rifleTemplate = await buildThirdPersonRifle(weaponId === 'ak47' ? 'ak' : 'm4');
   }
-  spawn(opts) { const e = new Enemy(this, opts); this.list.push(e); return e; }
+  spawn(opts) { const e = new Enemy(this, opts); this.list.push(e); if (e.friendly) (this.allies ||= []).push(e); return e; }
   get alive() { return this.list.filter(e => e.alive && !e.hostage && !e.friendly); }
   update(dt) { for (const e of this.list) e.update(dt); this.tactics(dt); }
   raycast(o, d, maxDist) {
     let best = null;
-    for (const e of this.list) { if (e.hostage && !this.G.hitHostages) { const h = e.raycast(o, d, maxDist); if (h && (!best || h.dist < best.dist)) best = h; continue; } const h = e.raycast(o, d, maxDist); if (h && (!best || h.dist < best.dist)) best = h; }
+    for (const e of this.list) { if (e.friendly) continue; if (e.hostage && !this.G.hitHostages) { const h = e.raycast(o, d, maxDist); if (h && (!best || h.dist < best.dist)) best = h; continue; } const h = e.raycast(o, d, maxDist); if (h && (!best || h.dist < best.dist)) best = h; }
     return best;
   }
   meleeTarget(pos, fwd, range) {
     let best = null, bd = range;
     for (const e of this.list) {
-      if (!e.alive || e.hostage) continue; const d = e.pos.distanceTo(pos);
+      if (!e.alive || e.hostage || e.friendly) continue; const d = e.pos.distanceTo(pos);
       if (d < bd && V(e.pos.x - pos.x, 0, e.pos.z - pos.z).normalize().dot(V(fwd.x, 0, fwd.z).normalize()) > 0.5) { bd = d; best = e; }
     }
     return best;
   }
   alert(pos, radius, source) {
     for (const e of this.list) {
-      if (!e.alive || e.hostage || e === source) continue;
+      if (!e.alive || e.hostage || e.friendly || e === source) continue;
       if (e.pos.distanceTo(pos) < radius && e.state !== 'combat') {
         e.state = 'alert'; e.investigate = pos.clone(); e.alertT = 8; e.awareness = Math.max(e.awareness, 0.5);
       }
@@ -674,12 +745,12 @@ export class EnemyManager {
       }
     }
     // morale: if the squad is getting wrecked, the wounded fall back
-    const dead = this.list.filter(e => !e.alive && !e.hostage && e.pos.distanceTo(P.pos) < 40).length;
+    const dead = this.list.filter(e => !e.alive && !e.hostage && !e.friendly && e.pos.distanceTo(P.pos) < 40).length;
     if (dead >= 3 && fighters.length && dead > fighters.length) for (const e of fighters) if (e.hp < G.diff.hp * 0.6 && !e.coverTarget && !e.holdPosition && Math.random() < 0.3) { e.pickCover(P.pos); this.shout(e, 'back'); }
     // throw back the player's grenades
     for (const g of G.grenades) {
       if (!g.byPlayer || g.type !== 'frag' || g.thrownBack || g.fuse < 1.2 || !g.stuck) continue;
-      const e = this.list.find(x => x.alive && !x.hostage && x.stun <= 0 && x.pos.distanceTo(g.pos) < 2.6);
+      const e = this.list.find(x => x.alive && !x.hostage && !x.friendly && x.stun <= 0 && x.pos.distanceTo(g.pos) < 2.6);
       if (e && Math.random() < 0.35) {
         g.thrownBack = true; this.shout(e, 'grenade');
         setTimeout(() => {
@@ -695,7 +766,7 @@ export class EnemyManager {
   callout(src) {
     this.shout(src, 'contact');
     // squad mates nearby are told where the player is
-    for (const e of this.list) if (e !== src && e.alive && !e.hostage && e.pos.distanceTo(src.pos) < 25 && e.state !== 'combat') {
+    for (const e of this.list) if (e !== src && e.alive && !e.hostage && !e.friendly && e.pos.distanceTo(src.pos) < 25 && e.state !== 'combat') {
       e.state = 'alert'; e.investigate = this.G.player.pos.clone(); e.awareness = Math.max(e.awareness, 0.7);
     }
   }
@@ -705,5 +776,5 @@ export class EnemyManager {
       if (d < radius && this.G.world.lineOfSight(e.eye.clone(), pos.clone().add(V(0, 0.3, 0)))) e.stun = 4 * (1 - d / radius) + 1.5;
     }
   }
-  clear() { for (const e of this.list) e.dispose(); this.list = []; }
+  clear() { for (const e of this.list) e.dispose(); this.list = []; this.allies = []; }
 }

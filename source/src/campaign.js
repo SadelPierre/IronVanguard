@@ -18,12 +18,12 @@ export const ACTS = [
 export const STORY = [
   { id: 'bootcamp', act: 0, title: 'Boot Camp' },
   { id: 'dustdevil', act: 0, title: 'Dust Devil' },
-  { id: 'overwatch', act: 0, title: 'Overwatch', soon: true },
+  { id: 'overwatch', act: 0, title: 'Overwatch' },
   { id: 'ironharbor', act: 1, title: 'Iron Harbor' },
-  { id: 'deepfreeze', act: 1, title: 'Deep Freeze', soon: true },
-  { id: 'angel', act: 1, title: 'Angel of Death', soon: true },
+  { id: 'deepfreeze', act: 1, title: 'Deep Freeze' },
+  { id: 'angel', act: 1, title: 'Angel of Death' },
   { id: 'midnight', act: 2, title: 'Midnight' },
-  { id: 'burnnotice', act: 2, title: 'Burn Notice', soon: true },
+  { id: 'burnnotice', act: 2, title: 'Burn Notice' },
   { id: 'blacktide', act: 2, title: 'Black Tide', soon: true },
   { id: 'convoy', act: 3, title: 'Convoy', soon: true },
   { id: 'skyfall', act: 3, title: 'Skyfall', soon: true },
@@ -53,7 +53,12 @@ export class Campaign {
     this.s = { active: true, difficulty, lives: max, maxLives: max, idx: 0, deathsHere: 0, deaths: 0, kills: 0, headshots: 0, time: 0, tags: [], flawless: 0, startedAt: Date.now() };
     store.del('save'); this.save();
   }
-  currentId() { return playable()[this.s.idx]?.id; }
+  // the next mission is stored by id so campaigns survive new missions being added to the list
+  currentId() {
+    const list = playable();
+    if (this.s.nextId) { const i = list.findIndex(m => m.id === this.s.nextId); if (i >= 0) { this.s.idx = i; return this.s.nextId; } }
+    return list[this.s.idx]?.id;
+  }
   missionNumber(id) { return STORY.findIndex(m => m.id === id) + 1; }
   actOf(id) { return ACTS[STORY.find(m => m.id === id)?.act ?? 0]; }
 
@@ -83,7 +88,7 @@ export class Campaign {
     this.s.idx = cur + 1;
     const next = list[this.s.idx];
     if (!next) { out.finished = true; this.s.active = false; this.recordRun(true); }
-    else { out.nextId = next.id; out.newAct = next.act !== prevAct ? ACTS[STORY.find(m => m.id === next.id).act] : null; }
+    else { out.nextId = this.s.nextId = next.id; out.newAct = next.act !== prevAct ? ACTS[STORY.find(m => m.id === next.id).act] : null; }
     this.save();
     return out;
   }

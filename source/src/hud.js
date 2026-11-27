@@ -29,6 +29,7 @@ export class HUD {
       <div id="scope"><div class="mask"></div><div class="lines"></div><div class="breath"></div></div>
       <div id="intro"></div>
       <div id="fps"></div>
+      <div id="gunship"><div class="ret g0"><i></i><i></i><i></i><i></i><b></b></div><div class="tl">AC-130  ·  THERMAL  ·  WHT-HOT</div><div class="alt"></div><div class="wpn"><div class="gn"></div><div class="am"></div><div class="keys">[1] 25mm &nbsp; [2] 40mm &nbsp; [3] 105mm</div></div></div>
       <div id="hint"></div>`;
     this.x = $('#xhair'); this.hm = $('#hitm'); this.cmp = $('#compass .strip'); this.cmpObj = $('#compass .obj');
     this.objT = $('#objp .t'); this.objC = $('#objp .c'); this.wp = $('#waypoint'); this.wpM = $('#waypoint .m');

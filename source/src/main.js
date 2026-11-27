@@ -85,7 +85,7 @@ function frame(now) {
   if (window.__manual) return;
   const dt = Math.min(0.05, (now - last) / 1000); last = now;
   if (game.state === 'playing') {
-    if (!game.paused) { game.update(dt); input.endFrame(); }
+    if (!game.paused) { game.update(dt * (game.timeScale || 1)); input.endFrame(); }
     engine.render(dt);
   } else if (game.state === 'over' && game.scene) {
     engine.render(dt);

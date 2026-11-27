@@ -26,6 +26,7 @@ const GradeShader = {
     grain: { value: 0.035 },
     aberr: { value: 0.0 },
     nvg: { value: 0 },
+    thermal: { value: 0 },
     scope: { value: 0 },
     contrast: { value: 1.06 },
     saturation: { value: 1.0 },
@@ -34,7 +35,7 @@ const GradeShader = {
   },
   vertexShader: `varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
   fragmentShader: `
-    uniform sampler2D tDiffuse; uniform float time, damage, flash, vignette, grain, aberr, nvg, scope, contrast, saturation, aspect;
+    uniform sampler2D tDiffuse; uniform float time, damage, flash, vignette, grain, aberr, nvg, thermal, scope, contrast, saturation, aspect;
     uniform vec3 tint; varying vec2 vUv;
     float rand(vec2 c){ return fract(sin(dot(c, vec2(12.9898,78.233))) * 43758.5453); }
     void main(){
@@ -48,6 +49,13 @@ const GradeShader = {
       col = (col-0.5)*contrast+0.5;
       float l=dot(col, vec3(0.299,0.587,0.114));
       col = mix(vec3(l), col, saturation) * tint;
+      if(thermal>0.5){
+        float L=dot(col, vec3(0.3,0.59,0.11));
+        float T=clamp(pow(L*1.25,0.85),0.0,1.0);
+        col=vec3(T*0.92+0.04);
+        col += (rand(uv*vec2(613.0,947.0)+time)-0.5)*0.07;
+        col *= 1.0-0.35*smoothstep(0.45,0.85,length(d*vec2(aspect,1.0)));
+      }
       if(nvg>0.5){
         float L=pow(dot(col, vec3(0.3,0.59,0.11)),0.8)*1.6+0.02;
         col = vec3(0.18,0.85,0.3)*L;
