@@ -8,6 +8,7 @@ import { list, put } from '@vercel/blob';
 const BOARDS = new Set(['bootcamp', 'dustdevil', 'overwatch', 'ironharbor', 'deepfreeze', 'angel', 'midnight', 'burnnotice', 'blacktide', 'convoy', 'skyfall', 'irondawn', 'laststand', 'campaign']);
 const DIFFS = new Set(['recruit', 'regular', 'hardened', 'veteran']);
 const MAX_SCORE = 400000;
+const HIDDEN = new Set(['testpost']); // moderation: callsigns never shown (lower case)
 const recent = new Map(); // ip -> last post time (per function instance; a light brake on spam)
 
 const enc = s => Buffer.from(s, 'utf8').toString('base64url');
@@ -41,7 +42,7 @@ export default async function handler(req, res) {
       } while (cursor && out.length < 3000);
       out.sort((a, b) => b.score - a.score || a.date - b.date);
       const top = [];
-      for (const s of out) { const k = s.name.toLowerCase(); if (seen.has(k)) continue; seen.add(k); top.push(s); if (top.length >= 25) break; }
+      for (const s of out) { const k = s.name.toLowerCase(); if (seen.has(k) || HIDDEN.has(k)) continue; seen.add(k); top.push(s); if (top.length >= 25) break; }
       res.setHeader('Cache-Control', 'public, s-maxage=30, stale-while-revalidate=60');
       return res.status(200).json({ ok: true, scores: top });
     }
